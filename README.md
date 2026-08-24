@@ -1,73 +1,44 @@
-# Focus Beat Star
+# Focus Beat｜Treblo Melodia 真唱版
 
-一个借鉴 TRAE 复赛案例「Focus Beat 专注节拍星球」产品思路的纯前端 Demo。
+面向小学生的专注与学习网站。文本 AI 负责歌词和学习内容；歌曲创作室先生成结构化曲调，再按音节位填词，默认由 Treblo Melodia v3 负责真实演唱和编曲，MiniMax 与 ACE 保留为备用适配器。
 
-## 项目定位
+## 歌曲规则
 
-Focus Beat Star 面向 6-12 岁小学生的放学后学习场景，把番茄钟、节拍感、音符奖励、错题记录和歌曲创作组合成一个完整的专注学习闭环。
+1. 生成试听扣 1 音符，曲调计划先确定每句音节位；通过 Treblo `/v1/generations/v3` 创建完整歌曲任务，完成后临时开放全曲试听，便于逐句检查演唱。
+2. 永久收藏扣 30 音符，直接保存同一份原版母带，不再使用 `complete` 二次生成，也不拼接两段 MP3。
+3. 换歌词、换曲调与填词各扣 1 音符，但只更新创作草稿并删除旧试听；确认后点击“生成试听”才调用音乐 API。
+4. 音乐服务未配置时页面会明确提示，绝不降级播放节拍器或浏览器朗读。
+5. 每个曲调都有主歌、副歌、桥段的音节槽位；一个字跨多个音符时只占一个音节位。歌词输入框直接显示灰体多余字和 `☆` 缺音节。试听前若存在偏差会弹出确认提示，但不会额外扣费。
+6. 供应商返回 LRC 或逐词时间戳时，收藏页按真实字级时间轴蓝色扫读；未返回时，页面会明确标注“估算逐行同步”，不会伪装成字级同步。
+7. 异步任务从提交开始即使用幂等键防重；短暂断网或状态查询超时不会重复创建歌曲，也不会把仍在生成的任务误判为退款。后端默认限制每来源每小时 8 首、全站每天 15 首，可通过环境变量调整。
 
-当前版本是可直接部署到 Cloudflare Pages 的纯前端原型，不依赖后端、不依赖数据库、不需要 API Key。
+## 本地启动
 
-## 已实现功能
-
-- 专注计划生成：支持轻松、标准、深度三种预设，也支持自定义时长、休息、段数。
-- 段落编辑：每段学习内容、专注分钟、休息分钟都可以修改。
-- 全屏专注：倒计时、进度条、节拍球、暂停、跳过、结束。
-- 音符奖励：专注、记录错题、答题练习都可以获得音符。
-- 错题记录：本地保存学科、难点标签和错题内容。
-- 举一反三：内置语文、数学、英语本地题库。
-- 今日总结：根据本地专注、音符、错题数据生成总结。
-- 每周任务：提供一周学习安排模板。
-- 歌曲创作：生成歌词、Web Audio 试听旋律、消耗音符保存歌曲。
-- 音符收藏册：本地保存已创作歌曲。
-
-## 技术栈
-
-- HTML
-- CSS
-- JavaScript
-- localStorage
-- Web Audio API
-
-## 本地运行
-
-直接打开 `index.html` 即可运行。
-
-也可以用任意静态服务器预览，例如：
-
-```bash
-npx serve .
+```powershell
+npx wrangler pages dev .
 ```
 
-## Cloudflare Pages 部署
+不要直接双击 `index.html`：真唱版的密钥与 R2 只能通过 Pages Function 使用。
 
-Cloudflare Pages 纯静态部署配置：
+## 必填配置
 
-- Framework preset: None
-- Build command: 留空
-- Build output directory: `/`
-- Root directory: `focus-beat`，如果仓库根目录就是本项目，则留空
+复制 `.dev.vars.example` 为 `.dev.vars` 后填写：
 
-部署完成后，Cloudflare Pages 会生成一个线上访问链接。
+- `MUSIC_PROVIDER=treblo`
+- `TREBLO_API_KEY`（只需在 `.dev.vars` 中粘贴这一项的真实值）
+- `TREBLO_BASE_URL=https://api.treblo.com/v1`
+- `TREBLO_MODEL_VERSION=v3`
+- `TREBLO_TARGET_DURATION=120`（默认请求约 120–150 秒；歌词较长时会按需扩展，最长 300 秒）
 
-## 数据说明
+Treblo 的生成链接只保证保留一周，后端会在任务完成时立即复制到 R2。用户可见页面必须保留 `Powered By Treblo` 链接，除非另行取得官方豁免。
 
-当前版本所有数据都保存在浏览器本地 `localStorage` 中：
+并在 Cloudflare 中创建并绑定 R2 桶 `focus-beat-audio` 为 `MUSIC_AUDIO`。真实密钥绝不能提交到仓库或放进浏览器代码。
 
-- 总音符
-- 今日专注分钟
-- 今日音符
-- 错题记录
-- 歌曲收藏
-- 当前专注计划
+## 主要文件
 
-清空浏览器数据或换浏览器后，本地数据不会同步。
-
-## 后续升级方向
-
-- 接入 Cloudflare Workers，统一代理 AI API。
-- 使用 Cloudflare KV 保存轻量用户数据。
-- 使用 Cloudflare D1 保存错题、歌曲和学习记录。
-- 增加登录能力，支持多设备同步。
-- 接入 AI 生成错题分析、每日总结、周计划和歌词。
-- 将多个 TRAE 案例复刻 Demo 整合成一个案例合集站。
+- `functions/api/music.js`：Treblo/MiniMax/ACE 完整母带生成、歌词时间戳读取、临时全曲试听与 R2 权限。
+- `functions/api/ai.js`：OpenAI 兼容文本 AI 网关；会压缩曲调输入并容错解析模型在 JSON 后附带的说明，避免误降级为本地模板。
+- `composition-plan.js`：曲调模板、音符、拖音和音节位的唯一真源。
+- `music-client.js`：只调用同源后端，前端没有音乐 Key。
+- `app.js`：音符扣费、退款、歌曲收藏和详情。
+- `tests/music-api.mjs`：模拟 Treblo、MiniMax、ACE 和 R2，验证异步轮询、临时 URL 转存、全曲试听及同母带永久收藏。

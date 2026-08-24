@@ -1,3 +1,28 @@
 name = "focus-beat-star"
 pages_build_output_dir = "."
 compatibility_date = "2026-08-18"
+
+[vars]
+MUSIC_PROVIDER = "treblo"
+TREBLO_BASE_URL = "https://api.treblo.com/v1"
+TREBLO_MODEL_VERSION = "v3"
+TREBLO_TARGET_DURATION = "120"
+MINIMAX_BASE_URL = "https://api.minimaxi.com"
+MINIMAX_MUSIC_MODEL = "music-2.6-free"
+MINIMAX_REQUEST_TIMEOUT_MS = "300000"
+MINIMAX_TARGET_DURATION = "60"
+MUSIC_HOURLY_LIMIT = "8"
+MUSIC_DAILY_LIMIT = "15"
+AI_FAST_TIMEOUT_MS = "15000"
+AI_LYRICS_TIMEOUT_MS = "32000"
+AI_HOURLY_LIMIT = "60"
+AI_DAILY_LIMIT = "500"
+ACEMUSIC_MAX_SYNC_DURATION = "60"
+ACEMUSIC_REQUEST_TIMEOUT_MS = "75000"
+ACEMUSIC_HOURLY_LIMIT = "8"
+ACEMUSIC_API_MODE = "cloud_completion"
+ACEMUSIC_INFERENCE_STEPS = "5"
+
+[[r2_buckets]]
+binding = "MUSIC_AUDIO"
+bucket_name = "focus-beat-audio"
