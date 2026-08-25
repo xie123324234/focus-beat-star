@@ -1,56 +1,33 @@
-# Cloudflare Pages 部署说明
+# 部署说明｜Focus Beat 本地拟唱版
 
-## 方式一：通过 GitHub 部署
+## 本地验收
 
-1. 新建 GitHub 仓库，例如 `focus-beat-star`。
-2. 上传本目录下的所有文件。
-3. 打开 Cloudflare Dashboard。
-4. 进入 Workers & Pages。
-5. 选择 Create application。
-6. 选择 Pages。
-7. 连接 GitHub 仓库。
-8. 选择项目仓库。
-9. 使用以下配置：
-
-```text
-Framework preset: None
-Build command: 留空
-Build output directory: /
-Root directory: 如果仓库根目录就是本项目，留空；如果本项目在 focus-beat 子目录，填写 focus-beat
+```powershell
+npx wrangler pages dev .
 ```
 
-10. 点击 Deploy。
+看到 `Ready on http://127.0.0.1:8788` 后访问该地址即可。`Request.cf` 的本地警告可忽略。
 
-## 方式二：通过 Wrangler 部署
+## 环境变量
 
-安装 Wrangler 后，在本目录运行：
+只需要文本 AI（可选）：
 
-```bash
-npx wrangler pages deploy . --project-name focus-beat-star
-```
+|变量|保存位置|说明|
+|---|---|---|
+|`AGNES_API_KEY`|Secret|Agnes 密钥|
+|`AGNES_BASE_URL`|Text|Agnes API 地址|
+|`AGNES_MODEL`|Text|模型名|
+|`AI_PROVIDER`|Text|`agnes`|
 
-## 部署后检查
+本地拟唱不需要 Eleven、ACE、R2 或任何音乐 API Key。没有 Agnes 时，歌词和学习功能会使用离线回退。
 
-打开 Cloudflare Pages 生成的链接，检查：
+## Cloudflare Pages
 
-- 首页是否正常显示。
-- 点击“开始专注学习”是否能打开计划弹窗。
-- 是否能进入全屏专注倒计时。
-- 错题是否能保存。
-- 练习题是否能答题。
-- 歌曲创作室是否能生成歌词和试听旋律。
-- 刷新页面后音符、错题、歌曲是否仍然存在。
+1. 将本文件夹作为 Pages 项目部署目录。
+2. 在 Pages 的 Variables and Secrets 中添加 Agnes 变量（如需云端文字生成）。
+3. 构建输出目录设为 `.`。
+4. 不上传 `.dev.vars`。
 
-## 后续接 Workers 的建议结构
+## 音乐说明
 
-```text
-focus-beat/
-  index.html
-  functions/
-    api/
-      summary.js
-      lyrics.js
-      mistake-analysis.js
-```
-
-Cloudflare Pages Functions 可以作为轻量后端，用来代理 AI API，并避免把 API Key 暴露在前端。
+歌曲收藏保存的是歌词、曲调蓝图与种子，之后由浏览器重新生成伴奏和拟唱；因此同一首歌在不同设备上可能有不同中文语音音色。Chrome 或 Edge 且已安装中文语音时体验更完整。

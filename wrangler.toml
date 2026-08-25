@@ -1,3 +1,7 @@
 name = "focus-beat-star"
 pages_build_output_dir = "."
 compatibility_date = "2026-08-18"
+
+[vars]
+MIMO_MODEL = "mimo-v2.5"
+MIMO_BASE_URL = "https://api.xiaomimimo.com/v1"
