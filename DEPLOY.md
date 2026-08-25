@@ -1,10 +1,6 @@
 # 部署说明｜Focus Beat Treblo 真唱版
 
-## 1. 创建 R2
-
-在 Cloudflare 创建名为 `focus-beat-audio` 的 R2 桶。`wrangler.toml` 已将其绑定为 `MUSIC_AUDIO`；线上 Pages 项目也必须在 Settings → Bindings 中绑定同一桶。
-
-## 2. 设置服务端变量
+## 1. 设置服务端变量
 
 本地放在 `.dev.vars`，线上放在 Cloudflare Pages 的 Variables and Secrets：
 
@@ -15,6 +11,7 @@
 |`TREBLO_BASE_URL`|Text|默认 `https://api.treblo.com/v1`|
 |`TREBLO_MODEL_VERSION`|Text|默认 `v3`|
 |`TREBLO_TARGET_DURATION`|Text|基础目标时长，默认 `120`，通常发送 `[120,150]`；歌词确实更长时自动按 30 秒档位扩展，最长 `[270,300]`|
+|`MUSIC_SIGNING_SECRET`|Secret，可选|至少 32 位随机文本；用于独立授权浏览器下载。未填写时会安全地派生自 Treblo Key。|
 |`MINIMAX_API_KEY`|Secret|MiniMax 开放平台 API Key|
 |`MINIMAX_BASE_URL`|Text|国内默认 `https://api.minimaxi.com`|
 |`MINIMAX_MUSIC_MODEL`|Text|备用；`music-2.6-free` 已停止服务，不建议继续使用|
@@ -45,7 +42,9 @@
 
 推荐使用上面的 `AI_*` 通用变量。`AGNES_*` 仅为旧配置保留，且只有明确设置 `AI_PROVIDER=agnes` 时才会读取；未配置完整时不会再静默回退到其他供应商。
 
-## 3. 本地测试
+Treblo 本地收藏模式不需要创建或绑定 R2。MiniMax 与 ACE 备用适配器仍保留 R2 版本，若要切换供应商需另行配置云端音频存储。
+
+## 2. 本地测试
 
 ```powershell
 npx wrangler pages dev .
@@ -53,11 +52,11 @@ npx wrangler pages dev .
 
 访问终端输出的本地地址。出现 `Unable to fetch Request.cf` 的 warning 是 Wrangler 本地模拟提示，不是启动失败。
 
-## 4. 音频与付费流程
+## 3. 音频与付费流程
 
-Treblo 模式使用 `POST /generations/v3` 创建任务，并轮询 `GET /generations/status/{task_id}`。成功后从 `song_paths[0]` 下载完整母带到 R2；试听令牌临时开放同一份全曲母带，永久收藏时只创建收藏凭证，不会再次生成、复制或拼接音频。
+Treblo 模式使用 `POST /generations/v3` 创建任务，并轮询 `GET /generations/status/{task_id}`。成功后通过同源签名下载通道把完整母带直接写入当前浏览器的 IndexedDB；试听和收藏使用同一份本地音频，收藏时不会再次生成、复制或下载歌曲。
 
-Treblo 的临时歌曲地址只保证一周，因此线上必须绑定 R2。项目请求 `align_lyrics=true` 并等待对齐任务；供应商实际返回时间戳时使用真实同步，否则诚实降级为估算逐行同步。生成失败时 Treblo 官方不扣 credits，网站也会退还音符。
+Treblo 的临时歌曲地址只保证一周，因此歌曲完成后应立即完成浏览器下载。项目请求 `align_lyrics=true` 并等待对齐任务；供应商实际返回时间戳时使用真实同步，否则诚实降级为估算逐行同步。生成失败、下载失败或本地空间不足时，网站会退还音符。
 
 Treblo API 条款要求用户可见产品清晰展示链接到 `https://treblo.com` 的 `Powered By Treblo`；项目页脚已加入该链接，请勿删除。
 
@@ -65,10 +64,10 @@ ACE 是备用模式。`api.acemusic.ai` 使用 `POST /v1/chat/completions`；只
 
 ACE 原生异步协议为：`POST /release_task` 创建任务，`POST /query_result` 轮询状态，成功后通过 `GET /v1/audio?path=...` 下载。不要把该模式指向 `https://api.acemusic.ai`。
 
-- 试听地址使用独立临时令牌，可播放全曲以检查所有歌词。只要完整音频到达浏览器，就无法绝对阻止用户提取，因此 30 音符对应的是永久收藏与产品内管理，而不是“才能听到后半首”。
-- 保存后复制同一母带并返回完整播放令牌，不再产生旋律或歌手变化。
-- 换歌词或换曲调成功后删除旧试听凭证和未收藏母带。
-- 未保存试听建议在 R2 生命周期规则中设置 24 小时自动删除。
+- 试听歌曲保存在 IndexedDB 的临时区，超过 24 小时会在下次打开网站时清理。
+- 收藏后音频标记为“已收藏”，可离线播放；清除浏览器站点数据、无痕模式结束或换设备会失去本地收藏。
+- 换歌词或换曲调成功后删除旧试听缓存。
+- 本地模式的轻量配额和幂等保护在函数实例内生效；公开运营时应再加 Cloudflare WAF/Rate Limiting 或 D1/KV。
 
 当前音符余额和收藏仍保存在浏览器本地，适合单机产品演示。公开运营前应将账户、扣费流水、歌曲归属和播放令牌迁移到 D1/认证系统。
 

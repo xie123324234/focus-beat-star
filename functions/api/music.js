@@ -8,6 +8,9 @@ const DEFAULT_SYNC_MAX_DURATION = 60;
 const DEFAULT_TREBLO_TARGET_DURATION = 120;
 const DEFAULT_CLOUD_INFERENCE_STEPS = 5;
 const MAX_AUDIO_BYTES = 28 * 1024 * 1024;
+const LOCAL_JOB_TTL_MS = 3 * 60 * 60 * 1000;
+const volatileRate = new Map();
+const volatileIdempotency = new Map();
 
 function clean(value, limit = 2400) { return String(value ?? "").replace(/[<>]/g, "").trim().slice(0, limit); }
 function json(data, status = 200) { return new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } }); }
@@ -59,7 +62,12 @@ function songDurationForLyrics(env, lyrics, asynchronous = false) {
 }
 function audioBucket(context) { return context.env.MUSIC_AUDIO || context.env.SONG_AUDIO || null; }
 function providerApiKey(env) { return musicProvider(env) === "treblo" ? env.TREBLO_API_KEY : musicProvider(env) === "minimax" ? env.MINIMAX_API_KEY : env.ACEMUSIC_API_KEY; }
-function canUseMusic(env) { return Boolean(providerApiKey(env) && audioBucket({ env })); }
+// A dedicated secret is recommended for production. Falling back to a namespaced
+// Treblo key keeps existing local installations working without adding a new
+// required setting, while never exposing that key to the browser.
+function signingSecret(env) { return String(env.MUSIC_SIGNING_SECRET || (env.TREBLO_API_KEY ? `focus-beat-local-download|${env.TREBLO_API_KEY}` : "")).trim(); }
+function localTrebloMode(env) { return musicProvider(env) === "treblo" && Boolean(providerApiKey(env) && signingSecret(env)) && !audioBucket({ env }); }
+function canUseMusic(env) { return Boolean(providerApiKey(env) && (audioBucket({ env }) || localTrebloMode(env))); }
 function renderMode(env) { return String(env.ACEMUSIC_RENDER_MODE || "text2music").toLowerCase() === "cover-guide" ? "cover-guide" : "text2music"; }
 /* ACE Cover needs a real sung guide. The generated sine-wave score is useful
  * for analysis, but it contains no vocal stem and can make ACE return an
@@ -476,6 +484,66 @@ function asyncAudioUrl(result, base) {
   return new URL(value, base).toString();
 }
 
+function base64UrlEncode(value) {
+  const bytes = new TextEncoder().encode(JSON.stringify(value)); let binary = "";
+  bytes.forEach(byte => { binary += String.fromCharCode(byte); });
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+}
+function base64UrlDecode(value) {
+  const normalized = String(value || "").replaceAll("-", "+").replaceAll("_", "/"); const padded = normalized + "=".repeat((4 - normalized.length % 4) % 4);
+  const binary = atob(padded); const bytes = Uint8Array.from(binary, char => char.charCodeAt(0));
+  return JSON.parse(new TextDecoder().decode(bytes));
+}
+async function hmac(value, secret) {
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name:"HMAC", hash:"SHA-256" }, false, ["sign"]);
+  const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(value)); let binary = "";
+  new Uint8Array(signature).forEach(byte => { binary += String.fromCharCode(byte); });
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+}
+function secureEqual(left, right) {
+  const a = String(left || ""); const b = String(right || ""); if (a.length !== b.length) return false;
+  let mismatch = 0; for (let index = 0; index < a.length; index += 1) mismatch |= a.charCodeAt(index) ^ b.charCodeAt(index); return mismatch === 0;
+}
+async function signLocalJob(context, value) {
+  const payload = base64UrlEncode({ ...value, mode:"local-treblo", expiresAt:Date.now() + LOCAL_JOB_TTL_MS });
+  return `${payload}.${await hmac(payload, signingSecret(context.env))}`;
+}
+async function verifyLocalJob(context, value) {
+  const [payload, signature, extra] = String(value || "").split(".");
+  if (!payload || !signature || extra || !signingSecret(context.env)) return null;
+  if (!secureEqual(await hmac(payload, signingSecret(context.env)), signature)) return null;
+  try {
+    const job = base64UrlDecode(payload);
+    if (job?.mode !== "local-treblo" || !job?.jobId || !job?.providerTaskId || Number(job.expiresAt) < Date.now()) return null;
+    return job;
+  } catch (_) { return null; }
+}
+function localAudioUrl(context, jobId, accessToken) {
+  const url = new URL(context.request.url); url.pathname = "/api/music"; url.search = "";
+  url.searchParams.set("localAudio", "1"); url.searchParams.set("id", jobId); url.searchParams.set("token", accessToken); return url.toString();
+}
+function localPublicJob(job, context, tokenValue, result = null, lyrics = "") {
+  const status = String(result?.status || job.status || "queued").toLowerCase(); const ready = status === "ready";
+  const duration = Number(result?.duration || job.duration) || DEFAULT_FULL_DURATION;
+  return { jobId:job.jobId, previewJobId:job.jobId, providerSongId:job.providerTaskId, status, mode:"remote", provider:"treblo", accessToken:tokenValue,
+    audioUrl:ready ? localAudioUrl(context, job.jobId, tokenValue) : "", duration, durationMs:duration * 1000, seed:Number(job.seed) || 0,
+    previewFraction:1, fullSongPreview:true, temporary:true, queuePosition:0, etaSeconds:0, asynchronous:true,
+    error:clean(result?.error || "", 420), previewLyrics:clean(lyrics || job.previewLyrics || "", 2400), alignment:result?.alignment || null,
+    alignmentStatus:result?.alignment ? "verified" : "unavailable", lyricScore:Number.isFinite(result?.lyricScore) ? result.lyricScore : null,
+    renderMode:"text2music", previewClipExact:true, compressedLyrics:false,
+  };
+}
+async function startLocalTrebloPreview(payload, context) {
+  const task = await submitTreblo(payload, context); const job = { jobId:jobId(), providerTaskId:task.providerJobId, status:task.status || "queued", duration:trebloTargetDuration(context.env, payload.lyrics), seed:Number(payload.seed) || Date.now(), previewLyrics:clean(payload.lyrics, 2400) };
+  const signed = await signLocalJob(context, job); return localPublicJob(job, context, signed, null, payload.lyrics);
+}
+async function refreshLocalTreblo(payload, context) {
+  const job = await verifyLocalJob(context, clean(payload.accessToken, 12_000)); if (!job || clean(payload.jobId, 120) !== clean(job.jobId, 120)) throw new Error("歌曲任务凭证无效或已过期");
+  const task = await queryTreblo({ providerTaskId:job.providerTaskId }, context); const duration = Number(task?.result?.duration || task?.result?.audio_duration || task?.result?.song_duration) || job.duration;
+  const lyrics = clean(payload.lyrics || job.previewLyrics, 2400); const result = task.status === "ready" ? { ...task, duration, alignment:providerAlignment(task.result || {}, lyrics, duration), lyricScore:providerLyricScore(task.result || {}) } : task;
+  return localPublicJob({ ...job, duration }, context, clean(payload.accessToken, 12_000), result, lyrics);
+}
+
 async function putManifest(context, manifest) {
   await audioBucket(context).put(manifestKey(manifest.jobId), JSON.stringify(manifest), { httpMetadata: { contentType: "application/json", cacheControl: "no-store" } });
 }
@@ -555,6 +623,7 @@ async function startPreview(payload, context) {
   const provider = musicProvider(context.env); const maximumDuration = provider === "treblo" ? 300 : 120;
   if (minimumRequiredDuration > maximumDuration) throw new Error(`歌词过长，预计至少需要 ${minimumRequiredDuration} 秒演唱；当前音乐服务最多支持约 ${maximumDuration} 秒`);
   if (provider === "treblo") {
+    if (localTrebloMode(context.env)) return startLocalTrebloPreview(previewPayload, context);
     const task = await submitTreblo(previewPayload, context); const totalDuration = trebloTargetDuration(context.env, previewPayload.lyrics);
     const manifest = previewManifest(previewPayload, context, totalDuration, task.providerJobId, task.status, { async: true, provider: "treblo" });
     manifest.strategy = "single-master-treblo-v3"; await putManifest(context, manifest); return publicJob(manifest, context);
@@ -595,6 +664,7 @@ async function startComplete(payload, context) {
 }
 
 async function refreshJob(payload, context) {
+  if (localTrebloMode(context.env)) return refreshLocalTreblo(payload, context);
   const id = clean(payload.jobId, 80); const accessToken = clean(payload.accessToken, 160); const manifest = await getManifest(context, id);
   if (!verifyManifest(manifest, accessToken)) throw new Error("歌曲任务凭证无效或已经过期");
   if (manifest.async && ["queued", "running", "processing"].includes(manifest.status)) {
@@ -651,7 +721,28 @@ async function serveAudio(context) {
   return audioResponse(object, bucket, key, context.request, { "x-focus-beat-scope": scope, ...(scope === "preview" ? { "x-focus-beat-preview-seconds": String(manifest.fullSongPreview === true ? manifest.duration : previewDuration(context.env)), "x-focus-beat-preview-kind": manifest.fullSongPreview === true ? "temporary-full-song" : "legacy-clip" } : {}) });
 }
 
+async function serveLocalTrebloAudio(context) {
+  if (!localTrebloMode(context.env)) return new Response("Not found", { status:404 });
+  const url = new URL(context.request.url); const id = clean(url.searchParams.get("id"), 120); const signed = clean(url.searchParams.get("token"), 12_000);
+  const job = await verifyLocalJob(context, signed);
+  if (!job || id !== clean(job.jobId, 120)) return new Response("Forbidden", { status:403 });
+  const task = await queryTreblo({ providerTaskId:job.providerTaskId }, context);
+  if (task.status !== "ready" || !task.audioUrl) return new Response("Song is not ready", { status:409, headers:{ "cache-control":"no-store" } });
+  const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 90_000);
+  try {
+    const headers = new Headers(); const range = context.request.headers.get("range"); if (range) headers.set("range", range);
+    const response = await fetch(task.audioUrl, { headers, signal:controller.signal });
+    if (!response.ok) return new Response("Unable to download provider audio", { status:502, headers:{ "cache-control":"no-store" } });
+    const type = String(response.headers.get("content-type") || "audio/mpeg");
+    if (type && !type.startsWith("audio/") && type !== "application/octet-stream") return new Response("Provider returned a non-audio file", { status:502 });
+    const output = new Headers({ "content-type":type, "cache-control":"private, no-store", "accept-ranges":"bytes", "x-focus-beat-local-audio":"1" });
+    for (const key of ["content-length", "content-range"]) { const value = response.headers.get(key); if (value) output.set(key, value); }
+    return new Response(response.body, { status:response.status, headers:output });
+  } finally { clearTimeout(timeout); }
+}
+
 async function deleteAce(payload, context) {
+  if (localTrebloMode(context.env)) return { deleted:true, jobId:clean(payload.jobId, 120) };
   const id = clean(payload.jobId, 80); const accessToken = clean(payload.accessToken, 160); const manifest = await getManifest(context, id);
   if (!manifest) return { deleted: true, jobId: id };
   if (!verifyManifest(manifest, accessToken)) throw new Error("删除凭证无效");
@@ -683,15 +774,31 @@ async function rateLimitPreview(context) {
   const now = new Date(); const hour = now.toISOString().slice(0, 13); const day = now.toISOString().slice(0, 10); const identity = clientIdentity(context.request);
   const hourlyLimit = Math.max(1, Math.min(30, Number(context.env.MUSIC_HOURLY_LIMIT || context.env.ACEMUSIC_HOURLY_LIMIT) || 8));
   const dailyLimit = Math.max(1, Math.min(1000, Number(context.env.MUSIC_DAILY_LIMIT) || 15));
+  if (!audioBucket(context)) {
+    const hourlyKey = `hour:${identity}|${hour}`; const dailyKey = `day:${day}`;
+    const hourly = volatileRate.get(hourlyKey) || 0; const daily = volatileRate.get(dailyKey) || 0;
+    if (hourly >= hourlyLimit) throw new Error(`本小时真唱生成次数已达上限（${hourlyLimit} 次），请稍后再试`);
+    if (daily >= dailyLimit) throw new Error(`今日全站真唱生成额度已达上限（${dailyLimit} 次），请明天再试或提高 MUSIC_DAILY_LIMIT`);
+    return [{ key:hourlyKey, count:hourly, volatile:true }, { key:dailyKey, count:daily, volatile:true }];
+  }
   const hourlyKey = rateKey(`${identity}|${hour}`); const dailyKey = quotaKey(`global|${day}`);
   const [hourly, daily] = await Promise.all([readJsonObject(audioBucket(context), hourlyKey), readJsonObject(audioBucket(context), dailyKey)]);
   if (Number(hourly?.count) >= hourlyLimit) throw new Error(`本小时真唱生成次数已达上限（${hourlyLimit} 次），请稍后再试`);
   if (Number(daily?.count) >= dailyLimit) throw new Error(`今日全站真唱生成额度已达上限（${dailyLimit} 次），请明天再试或提高 MUSIC_DAILY_LIMIT`);
   return [{ key: hourlyKey, count: Number(hourly?.count) || 0 }, { key: dailyKey, count: Number(daily?.count) || 0 }];
 }
-async function commitRate(context, rates) { await Promise.all(rates.map(rate => audioBucket(context).put(rate.key, JSON.stringify({ count: rate.count + 1, updatedAt: nowIso() }), { httpMetadata: { contentType: "application/json", cacheControl: "no-store" } }))); }
+async function commitRate(context, rates) {
+  if (!rates?.length) return;
+  if (!audioBucket(context)) { rates.forEach(rate => { if (rate.volatile) volatileRate.set(rate.key, rate.count + 1); }); return; }
+  await Promise.all(rates.map(rate => audioBucket(context).put(rate.key, JSON.stringify({ count: rate.count + 1, updatedAt: nowIso() }), { httpMetadata: { contentType: "application/json", cacheControl: "no-store" } })));
+}
 async function idempotentPreview(context) {
   const value = clean(context.request.headers.get("x-idempotency-key"), 120); if (!value) return null;
+  if (!audioBucket(context)) {
+    const key = `${clientIdentity(context.request)}|${value}`; const cached = volatileIdempotency.get(key);
+    if (cached?.expiresAt > Date.now()) return { key, data:cached.data, volatile:true };
+    return { key, data:null, volatile:true };
+  }
   const key = idempotencyKey(`${clientIdentity(context.request)}|${value}`); const cached = await readJsonObject(audioBucket(context), key);
   // Asynchronous tasks must remain idempotent while queued/running. Otherwise a
   // browser retry can create a second paid provider task before the first ends.
@@ -717,7 +824,8 @@ export async function onRequestPost(context) {
   if (context.env.MUSIC_MODE === "mock") return json({ ok: true, data: mock(action, payload, context), meta: { mode: "mock", provider: "acemusic-mock", async: false } });
   if (!canUseMusic(context.env)) {
     const provider = musicProvider(context.env); const keyName = provider === "treblo" ? "TREBLO_API_KEY" : provider === "minimax" ? "MINIMAX_API_KEY" : "ACEMUSIC_API_KEY";
-    return json({ ok: false, error: `专业音乐服务尚未配置：请设置 ${keyName} 并绑定 MUSIC_AUDIO R2` }, 503);
+    const extra = provider === "treblo" ? "，并在无 R2 本地收藏模式下设置 MUSIC_SIGNING_SECRET" : " 并绑定 MUSIC_AUDIO R2";
+    return json({ ok: false, error: `专业音乐服务尚未配置：请设置 ${keyName}${extra}` }, 503);
   }
   try {
     let data;
@@ -732,7 +840,10 @@ export async function onRequestPost(context) {
         const rate = await rateLimitPreview(context);
         data = await startPreview(payload, context);
         await commitRate(context, rate);
-        if (idempotent?.key) await audioBucket(context).put(idempotent.key, JSON.stringify({ jobId: data.jobId, createdAt: nowIso() }), { httpMetadata: { contentType: "application/json", cacheControl: "no-store" } });
+        if (idempotent?.key) {
+          if (idempotent.volatile) volatileIdempotency.set(idempotent.key, { data, expiresAt:Date.now() + LOCAL_JOB_TTL_MS });
+          else await audioBucket(context).put(idempotent.key, JSON.stringify({ jobId: data.jobId, createdAt: nowIso() }), { httpMetadata: { contentType: "application/json", cacheControl: "no-store" } });
+        }
       }
     }
     const provider = musicProvider(context.env); const asynchronous = provider === "treblo" || (provider === "acemusic" && nativeAsyncEnabled(context.env));
@@ -748,7 +859,7 @@ export async function onRequestPost(context) {
 }
 
 export async function onRequestGet(context) {
-  const url = new URL(context.request.url); if (url.searchParams.get("audio") === "1") return serveAudio(context);
+  const url = new URL(context.request.url); if (url.searchParams.get("localAudio") === "1") return serveLocalTrebloAudio(context); if (url.searchParams.get("audio") === "1") return serveAudio(context);
   const provider = musicProvider(context.env); const configured = canUseMusic(context.env) && context.env.MUSIC_MODE !== "mock";
   const asynchronous = provider === "treblo" || (provider === "acemusic" && nativeAsyncEnabled(context.env));
   const strategy = provider === "treblo" ? "single-master-treblo-v3" : provider === "minimax" ? "single-master-minimax-v1" : asynchronous ? "single-master-v4-async" : "single-master-v3";

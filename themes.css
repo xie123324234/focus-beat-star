@@ -32,6 +32,7 @@
 :root[data-theme="cosmos"] {
   color-scheme:dark;
   --ink:#eef1ff; --muted:#aab3d1; --paper:#090d20; --card:#121832; --line:rgba(191,202,255,.17);
+  --lyric-editor-text:#e5eaff; --lyric-extra-text:#9fa9c9;
   --purple:#9383ff; --purple-dark:#7663f2; --coral:#ff7188; --mint:#4ad9c0; --gold:#f5bf58;
   --shadow:0 26px 75px rgba(0,0,0,.38); --radius:24px;
   --theme-deep:#080b1c; --theme-deep-soft:#19214a; --theme-panel:#11172e; --theme-input:#171f3c;

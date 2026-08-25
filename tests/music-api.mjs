@@ -238,4 +238,26 @@ try {
   assert.equal([...minimaxBucket.items.keys()].filter(key => key.startsWith("ace/audio/")).length, 1);
 } finally { globalThis.fetch = originalFetch; }
 
+const localTrebloEnv = { MUSIC_PROVIDER:"treblo", TREBLO_API_KEY:"local-treblo-key", TREBLO_BASE_URL:"https://treblo.local/v1", TREBLO_MODEL_VERSION:"v3", TREBLO_TARGET_DURATION:"60", MUSIC_SIGNING_SECRET:"this-is-a-test-only-signing-secret-with-enough-length" };
+let localSubmits = 0; let localStatusCalls = 0; let localDownloads = 0;
+globalThis.fetch = async (url, options = {}) => {
+  const address = String(url);
+  if (address === "https://treblo.local/v1/generations/v3") { localSubmits += 1; return Response.json({ task_id:"local-task-1" }); }
+  if (address.includes("/generations/status/local-task-1")) { localStatusCalls += 1; return Response.json({ status:"SUCCESS", alignment_status:"SUCCESS" }); }
+  if (address === "https://treblo.local/v1/generations/local-task-1") return Response.json({ status:"SUCCESS", song_paths:["https://cdn.treblo.local/local-song.mp3"], duration:60, lyrics:"[主歌 A]\\n今天发光" });
+  if (address === "https://cdn.treblo.local/local-song.mp3") { localDownloads += 1; return new Response(new Uint8Array(1024).fill(7), { headers:{ "content-type":"audio/mpeg", "content-length":"1024" } }); }
+  throw new Error(`Unexpected local Treblo URL: ${address}`);
+};
+try {
+  const request = (action, payload, headers = {}) => onRequestPost({ env:localTrebloEnv, request:new Request("http://127.0.0.1:8788/api/music", { method:"POST", headers:{ "content-type":"application/json", origin:"http://127.0.0.1:8788", ...headers }, body:JSON.stringify({ action, payload }) }) });
+  const payload = { title:"本地收藏测试", style:"pop", lyrics:"[主歌 A]\\n今天发光", seed:52 };
+  const queued = await (await request("preview", payload, { "x-idempotency-key":"local-preview" })).json();
+  assert.equal(queued.ok, true); assert.equal(queued.data.status, "queued"); assert.ok(queued.data.accessToken.length > 40, "local job must carry a signed short-lived task token");
+  const duplicate = await (await request("preview", payload, { "x-idempotency-key":"local-preview" })).json(); assert.equal(duplicate.data.jobId, queued.data.jobId); assert.equal(localSubmits, 1, "local-mode retry created a duplicate Treblo task");
+  const ready = await (await request("status", { jobId:queued.data.jobId, accessToken:queued.data.accessToken, lyrics:payload.lyrics })).json();
+  assert.equal(ready.data.status, "ready"); assert.match(ready.data.audioUrl, /localAudio=1/); assert.equal(localDownloads, 0, "status must not download audio into a server bucket");
+  const audio = await onRequestGet({ env:localTrebloEnv, request:new Request(ready.data.audioUrl) });
+  assert.equal(audio.status, 200); assert.equal(Number(audio.headers.get("content-length")), 1024); assert.equal(localDownloads, 1, "the browser download proxy did not stream the provider audio");
+} finally { globalThis.fetch = originalFetch; }
+
 console.log("PASS music API single-master flow");

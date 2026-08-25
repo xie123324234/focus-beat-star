@@ -42,6 +42,21 @@
     if ("IntersectionObserver" in window) new IntersectionObserver(entries => { heroVisible = Boolean(entries[0]?.isIntersecting); syncPauseState(); }, { threshold:.08 }).observe(hero);
   }
 
+  function heroWorldMarkup(theme) {
+    if (theme === "candy") return `<div class="world-candy" aria-hidden="true"><span class="candy-moon"></span><span class="candy-speaker"><i></i><b>♫</b></span><span class="candy-rainbow"></span><span class="candy-spark candy-spark-one">✦</span><span class="candy-spark candy-spark-two">♡</span></div>`;
+    if (theme === "cosmos") return `<div class="world-cosmos" aria-hidden="true"><span class="solar-sun">☀</span><i class="solar-orbit solar-orbit-one"></i><i class="solar-orbit solar-orbit-two"></i><i class="solar-orbit solar-orbit-three"></i><i class="solar-orbit solar-orbit-four"></i><span class="solar-planet mercury" title="水星"></span><span class="solar-planet venus" title="金星"></span><span class="solar-planet earth" title="地球"></span><span class="solar-planet mars" title="火星"></span><span class="solar-planet jupiter" title="木星"></span><span class="solar-planet saturn" title="土星"></span><span class="solar-planet uranus-mini" title="天王星"></span><span class="solar-planet neptune-mini" title="海王星"></span></div>`;
+    if (theme === "pixel") return `<div class="world-pixel" aria-hidden="true"><span class="pixel-antenna"></span><span class="pixel-console"><i class="pixel-screen-art">♫</i><b>FOCUS<br>FM-08</b><em></em><em></em></span><span class="pixel-bars"><i></i><i></i><i></i><i></i><i></i></span></div>`;
+    if (theme === "journal") return `<div class="world-journal" aria-hidden="true"><span class="journal-stamp">TODAY</span><span class="journal-page-art"><i></i><i></i><i></i><b>♪</b></span><span class="journal-pencil"></span><span class="journal-twinkle">✧</span></div>`;
+    if (theme === "forest") return `<div class="world-forest" aria-hidden="true"><span class="forest-canopy"></span><span class="forest-ring"><i></i><i></i><i></i><b>♫</b></span><span class="forest-needle"></span><span class="forest-leaf-art leaf-art-one">❧</span><span class="forest-leaf-art leaf-art-two">❧</span></div>`;
+    return `<div class="world-sunny" aria-hidden="true"><span class="sunny-window"><i></i><i></i><b>☀</b></span><span class="sunny-desk"></span><span class="sunny-record">♫</span><span class="sunny-book"></span><span class="sunny-glint">✦</span></div>`;
+  }
+
+  function renderHeroWorld(theme = currentTheme()) {
+    const art = document.querySelector(".orbit-art"); if (!art) return;
+    art.className = `orbit-art hero-world hero-world-${theme}`;
+    art.innerHTML = heroWorldMarkup(theme);
+  }
+
   function makeWhisper() {
     if (whisper) return;
     whisper = document.createElement("aside"); whisper.className = "daily-whisper"; whisper.setAttribute("aria-live","polite"); whisper.hidden = true;
@@ -105,7 +120,7 @@
   }
 
   function renderScene() {
-    if (!stage) return; hideThemeContent(); clearScene(); const theme = currentTheme(); stage.classList.add(`scene-${theme}`); stage.innerHTML = sceneMarkup(theme); syncControls();
+    if (!stage) return; hideThemeContent(); clearScene(); const theme = currentTheme(); renderHeroWorld(theme); stage.classList.add(`scene-${theme}`); stage.innerHTML = sceneMarkup(theme); syncControls();
     const signal = sceneAbort.signal; stage.addEventListener("click", handleSceneClick, { signal });
     if (theme === "forest" && preferences.intensity !== "quiet" && !reduced()) scheduleForestFlight(preferences.intensity === "rich" ? 9000 : 18000);
     observeMusicActivity(signal); syncPauseState();
@@ -135,8 +150,16 @@
     addTimer(window.setTimeout(() => { if (!isPaused() && preferences.intensity !== "quiet" && stage?.classList.contains("scene-forest")) { const bird = document.createElement("span"); bird.className = "forest-flyby"; bird.setAttribute("aria-hidden","true"); bird.textContent = "⌁●"; stage.append(bird); window.setTimeout(() => bird.remove(), 9000); } scheduleForestFlight(preferences.intensity === "rich" ? 24000 + Math.random()*18000 : 48000 + Math.random()*28000); }, delay));
   }
 
+  function celebrateFocus(detail = {}) {
+    const world = document.querySelector(".hero-world"); if (!world || document.hidden || reduced()) return;
+    world.classList.remove("is-celebrating"); void world.offsetWidth; world.classList.add("is-celebrating");
+    window.setTimeout(() => world.classList.remove("is-celebrating"), 900);
+    const labels = { sunny:"书签 +1", candy:"糖果星 +1", cosmos:"星光 +1", pixel:"像素徽章 +1", journal:"今日印章 +1", forest:"新叶 +1" };
+    if (preferences.intensity === "rich") showWhisper(labels[currentTheme()] || "今日进度 +1", { daily:false, duration:4200, icon:themeIcons[currentTheme()] });
+  }
+
   function observeMusicActivity(signal) {
-    const update = () => stage?.classList.toggle("music-active", !document.querySelector("#globalSongPlayer")?.hidden || document.querySelector(".track-panel.playing")); update();
+    const update = () => { const active = !document.querySelector("#globalSongPlayer")?.hidden || document.querySelector(".track-panel.playing"); stage?.classList.toggle("music-active", active); document.querySelector(".hero-world")?.classList.toggle("is-playing", active); }; update();
     const observer = new MutationObserver(update); const player = document.querySelector("#globalSongPlayer"); const track = document.querySelector(".track-panel"); if (player) observer.observe(player,{ attributes:true, attributeFilter:["hidden"] }); if (track) observer.observe(track,{ attributes:true, attributeFilter:["class"] }); signal.addEventListener("abort",() => observer.disconnect(),{ once:true });
   }
 
@@ -156,7 +179,7 @@
 
   function setup(options={}) {
     if (setupDone) return; setupDone=true; context=options; makeStage(); makeWhisper(); makeContentCard(); injectControls(); renderScene();
-    window.addEventListener("focusbeat:themechange",renderScene); window.addEventListener("focusbeat:motionchange",renderScene); document.addEventListener("visibilitychange",syncPauseState);
+    window.addEventListener("focusbeat:themechange",renderScene); window.addEventListener("focusbeat:motionchange",renderScene); window.addEventListener("focusbeat:focuscomplete", event => celebrateFocus(event.detail)); document.addEventListener("visibilitychange",syncPauseState);
     const pauseObserver=new MutationObserver(syncPauseState); pauseObserver.observe(document.body,{ attributes:true,attributeFilter:["class"] }); const focus=document.querySelector("#focusOverlay"); if (focus) pauseObserver.observe(focus,{attributes:true,attributeFilter:["class"]});
     const begin=() => loadDailyReminder(); if ("requestIdleCallback" in window) requestIdleCallback(begin,{timeout:5000}); else window.setTimeout(begin,3500);
   }

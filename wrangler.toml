@@ -22,7 +22,3 @@ ACEMUSIC_REQUEST_TIMEOUT_MS = "75000"
 ACEMUSIC_HOURLY_LIMIT = "8"
 ACEMUSIC_API_MODE = "cloud_completion"
 ACEMUSIC_INFERENCE_STEPS = "5"
-
-[[r2_buckets]]
-binding = "MUSIC_AUDIO"
-bucket_name = "focus-beat-audio"

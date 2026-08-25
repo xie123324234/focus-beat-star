@@ -28,7 +28,7 @@
     finally { clearTimeout(timeout); }
   }
 
-  async function jobStatus(jobId, accessToken) { return request("status", { jobId, accessToken }, { timeoutMs: 25_000 }); }
+  async function jobStatus(jobId, accessToken, details = {}) { return request("status", { jobId, accessToken, lyrics:details.lyrics || "" }, { timeoutMs: 25_000 }); }
   async function release(jobId, accessToken) { if (!jobId || !accessToken) return; try { await request("delete", { jobId, accessToken }, { timeoutMs: 5_000 }); } catch (_) {} }
   window.FocusBeatMusicAPI = { request, status, jobStatus, release };
 })();

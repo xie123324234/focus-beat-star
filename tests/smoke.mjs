@@ -129,7 +129,7 @@ await test("page generates, charges and unlocks a mock true-singing asset withou
   const preview = await page.evaluate(() => window.__focusBeat.currentDraft.preview); assert(preview.audioUrl && preview.accessToken, "preview did not receive protected ACE audio");
   await page.locator("#playSongBtn").click(); await continuePreviewIfWarn(page); assert(await page.locator("#playSongBtn").textContent() === "■ 停止播放", "preview did not use an audio asset"); await page.locator("#playSongBtn").click();
   await page.locator("#saveSongBtn").click(); await page.waitForFunction(() => document.querySelector("#saveSongBtn").textContent.includes("已收藏"));
-  assert(await page.locator("#totalNotes").textContent() === "4", "permanent collection did not charge 30 notes exactly"); assert((await page.locator("#previewRuleText").textContent()).includes("永久收藏"), "same master was not permanently collected"); assert(await page.locator("#saveSongBtn").evaluate(node => node.disabled && !node.classList.contains("is-busy") && getComputedStyle(node).cursor === "not-allowed"), "completed save button still looks like a loading request"); assert(errors.length === 0, errors.join(" | ")); await context.close();
+  assert(await page.locator("#totalNotes").textContent() === "4", "local collection did not charge 30 notes exactly"); assert((await page.locator("#previewRuleText").textContent()).includes("本设备"), "same master was not marked as locally collected"); assert(await page.locator("#saveSongBtn").evaluate(node => node.disabled && !node.classList.contains("is-busy") && getComputedStyle(node).cursor === "not-allowed"), "completed save button still looks like a loading request"); assert(errors.length === 0, errors.join(" | ")); await context.close();
 });
 
 await test("preview lyric audit is honest, supports free manual correction and saves the corrected lyrics", async () => {
@@ -159,7 +159,7 @@ await test("song studio marks overlong lyrics and can polish them to the selecte
   assert((await page.locator("#lyricFitSummary").textContent()).includes("符合"), "generated lyrics were not checked against a melody meter");
   await page.locator("#lyrics").fill("[主歌 A]\n这是一个字数特别特别特别特别特别特别特别特别特别长的句子\n[副歌]\n我会发光");
   await page.waitForFunction(() => document.querySelector("#lyricFitSummary").textContent.includes("灰体字"));
-  await page.getByRole("button", { name: "按曲调润色 · 1 音符" }).click();
+  await page.getByRole("button", { name: "歌词润色 · 1 音符" }).click();
   await page.waitForFunction(() => !document.querySelector("#polishLyricsBtn").disabled && !document.querySelector("#lyricFitSummary").textContent.includes("灰体字"));
   assert((await page.locator("#lyricFitSummary").textContent()).includes("符合"), "polished lyrics still did not fit the melody meter"); await context.close();
 });
@@ -175,11 +175,10 @@ await test("song studio shows inline missing and extra characters and confirms p
   await context.close();
 });
 
-await test("changing lyrics and tune only updates the draft until preview is requested", async () => {
-  const { context, page } = await newPage(); await page.getByRole("button", { name: "创作一首歌" }).click(); await createLyrics(page); const first = await page.locator("#lyrics").inputValue();
-  await page.locator("#regenerateLyricsBtn").click(); await page.waitForFunction(previous => document.querySelector("#lyrics").value !== previous, first); assert(await page.locator("#totalNotes").textContent() === "34", "lyric variant did not charge one note"); assert(await page.evaluate(() => window.__focusBeat.currentDraft.preview === null), "changing lyrics should not call music generation");
-  await page.locator("#playSongBtn").click(); await page.waitForFunction(() => window.__focusBeat.currentDraft.preview && !window.__focusBeat.currentDraft.stale); assert(await page.locator("#totalNotes").textContent() === "33", "preview did not charge one note");
-  await page.locator("#regenerateTuneBtn").click(); await page.waitForFunction(() => window.__focusBeat.currentDraft.preview === null); assert(await page.locator("#totalNotes").textContent() === "32", "tune variant did not charge one note"); await context.close();
+await test("changing tune and lyrics only updates the draft until preview is requested", async () => {
+  const { context, page } = await newPage(); await page.getByRole("button", { name: "创作一首歌" }).click(); await createLyrics(page);
+  await page.locator("#playSongBtn").click(); await page.waitForFunction(() => window.__focusBeat.currentDraft.preview && !window.__focusBeat.currentDraft.stale); assert(await page.locator("#totalNotes").textContent() === "34", "preview did not charge one note");
+  await page.locator("#regenerateTuneBtn").click(); await page.waitForFunction(() => window.__focusBeat.currentDraft.preview === null); assert(await page.locator("#totalNotes").textContent() === "33", "tune and lyric variant did not charge one note"); await context.close();
 });
 
 await test("collection keeps complete lyrics and full ACE URL after refresh", async () => {
@@ -237,6 +236,8 @@ await test("theme ambience exposes one lightweight signature interaction per spa
     await page.evaluate(async value => window.FocusBeatThemes.apply(value, { animate: false }), theme);
     assert(await page.locator(`.theme-stage.scene-${theme} ${selector}`).count() > 0, `${theme} signature scene did not render`);
     assert(await page.locator(".theme-stage *").count() < 35, `${theme} scene is too DOM-heavy`);
+    assert(await page.locator(`.orbit-art.hero-world-${theme}`).count() === 1, `${theme} did not render its dedicated hero world`);
+    assert(await page.locator(".hero-world *").count() < 16, `${theme} hero world is too DOM-heavy`);
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), `${theme} ambience overflowed the page`);
   }
   await page.evaluate(async () => window.FocusBeatThemes.apply("candy", { animate: false })); await page.locator(".candy-cloud").click();
@@ -272,8 +273,8 @@ await test("focus reward cannot be claimed immediately", async () => {
 
 await test("degraded text AI is disclosed and never consumes song notes", async () => {
   const { context, page } = await newPage({ ai: "degraded" }); await page.getByRole("button", { name: "创作一首歌" }).click(); await createLyrics(page);
-  const before = Number(await page.locator("#totalNotes").textContent()); await page.locator("#regenerateLyricsBtn").click(); await page.waitForFunction(() => !document.querySelector("#regenerateLyricsBtn").disabled);
-  assert(Number(await page.locator("#totalNotes").textContent()) === before, "degraded local lyrics consumed notes"); assert((await page.locator("#songAiStatus").textContent()).includes("降级"), "degraded AI still appears connected"); await context.close();
+  const before = Number(await page.locator("#totalNotes").textContent()); await page.locator("#regenerateTuneBtn").click(); await page.waitForFunction(() => !document.querySelector("#regenerateTuneBtn").disabled);
+  assert(Number(await page.locator("#totalNotes").textContent()) === before, "degraded local tune and lyrics generation consumed notes"); assert((await page.locator("#songAiStatus").textContent()).includes("降级"), "degraded AI still appears connected"); await context.close();
 });
 
 await test("dialogs restore focus and the focus timer traps keyboard navigation", async () => {

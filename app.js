@@ -103,7 +103,7 @@
       id: text(item.id, 80, uid("song")), name: text(item.name, 32, "未命名歌曲") || "未命名歌曲",
       style, lyrics, seed, blueprint, melodyGuide: item.melodyGuide && typeof item.melodyGuide === "object" ? item.melodyGuide : null, compositionPlan: item.compositionPlan && typeof item.compositionPlan === "object" ? item.compositionPlan : item.melodyGuide?.compositionPlan || null, alignment: item.alignment && typeof item.alignment === "object" ? item.alignment : null, unlocked: item.unlocked !== false,
       previewJobId: text(item.previewJobId, 160), fullJobId: text(item.fullJobId, 160),
-      duration: number(item.duration || item.blueprint?.duration, 60, 1, 600), audioUrl: text(item.audioUrl, 2000), accessToken: text(item.accessToken, 200), previewAccessToken: text(item.previewAccessToken, 200), storageKey: text(item.storageKey, 300), provider: text(item.provider, 40, "acemusic"),
+      duration: number(item.duration || item.blueprint?.duration, 60, 1, 600), audioUrl: text(item.audioUrl, 2000), localAudioId: text(item.localAudioId, 180), accessToken: text(item.accessToken, 200), previewAccessToken: text(item.previewAccessToken, 200), storageKey: text(item.storageKey, 300), provider: text(item.provider, 40, "acemusic"),
       createdAt: text(item.createdAt || item.time, 80, new Date().toISOString()),
     };
   }
@@ -215,7 +215,7 @@
     meter.setAttribute("aria-valuenow", String(Math.floor(progress)));
     if (state.totalNotes >= SONG_TARGET) {
       $("#songReadyTitle").textContent = "下一首歌已就绪";
-      $("#songReadyCopy").textContent = "已攒够一次全曲试听和一次永久收藏。";
+      $("#songReadyCopy").textContent = "已攒够一次全曲试听和一次本地收藏。";
     } else {
       $("#songReadyTitle").textContent = `还差 ${Math.ceil(SONG_TARGET - state.totalNotes)} 枚音符`;
       $("#songReadyCopy").textContent = "完成专注、分析错题和答题练习都能获得音符。";
@@ -368,6 +368,7 @@
     }
     state.totalNotes += earned; state.day.notes += earned; state.day.sessions += 1; state.day.focus += timer.focusMin;
     showToast(`完成一段专注，获得 ${earned} 枚音符`);
+    window.dispatchEvent(new CustomEvent("focusbeat:focuscomplete", { detail: { earned, sessions: state.day.sessions, minutes: timer.focusMin } }));
   }
 
   function advanceTimer(event) {
@@ -499,7 +500,7 @@
     $("#musicEngineLabel").textContent = remote ? `${providerName} 真唱服务已连接` : "专业音乐服务尚未配置";
     $("#musicEngineHelp").textContent = remote
       ? (musicServiceMeta.provider === "treblo" ? "Treblo Melodia v3 异步真唱：生成完成后可临时试听全曲；收藏时永久保留同一份母带。" : musicServiceMeta.provider === "minimax" ? "MiniMax 真唱模式：生成后可临时试听全曲；收藏时永久保留同一音频。" : musicServiceMeta.async ? "异步真唱模式：任务完成后可临时试听全曲；收藏时永久保留同一母带。" : musicServiceMeta.renderMode === "cover-guide" ? "已配置真实人声引导；可临时试听全曲，收藏后永久保留同一音频。" : "ACE 同步真唱兼容模式：可临时试听全曲，收藏时永久保留同一母带。")
-      : `请通过 Wrangler 运行，并配置 ${musicServiceMeta.provider === "treblo" ? "TREBLO_API_KEY" : musicServiceMeta.provider === "minimax" ? "MINIMAX_API_KEY" : "ACEMUSIC_API_KEY"} 与 MUSIC_AUDIO R2；不会退回节拍器演示。`;
+      : `请通过 Wrangler 运行，并配置 ${musicServiceMeta.provider === "treblo" ? "TREBLO_API_KEY" : musicServiceMeta.provider === "minimax" ? "MINIMAX_API_KEY" : "ACEMUSIC_API_KEY"}；不会退回节拍器演示。`;
   }
 
   function guideFor(seed = currentDraft.seed || Date.now()) {
@@ -706,11 +707,11 @@
   function renderLyricFit(guide = guideFor()) {
     const lyrics = $("#lyrics").value.trim(); const safeGuide = FocusBeatMelodyGuide.normalize(guide, { style: $("#songStyle").value, seed: currentDraft.seed || Date.now() });
     $("#melodyGuideLabel").textContent = `${safeGuide.name} · ${safeGuide.bpm} BPM`;
-    $("#melodyGuideCopy").textContent = `${FocusBeatMelodyGuide.description(safeGuide)}。这是生成前填词节奏建议，不代表音乐服务成品的实际音符。${lyrics ? "灰体字部分建议缩减行字数，“☆”部分建议补充音节。" : "生成歌词后会显示建议音节位。"}`;
+    $("#melodyGuideCopy").textContent = `${FocusBeatMelodyGuide.description(safeGuide)}。这是当前曲调规划与填词建议，不代表音乐服务成品的实际音符。${lyrics ? "灰体字部分建议缩减行字数，“☆”部分建议补充音节。" : "生成歌词后会显示建议音节位。"}`;
     const summary = $("#lyricFitSummary"); const list = $("#lyricFitList"); list.innerHTML = "";
     if (!lyrics) { summary.textContent = "尚未检测歌词"; summary.className = "lyric-fit-summary"; $("#lyricWarning").hidden = true; renderInlineLyricOverlay(safeGuide); return { total: 0, issues: 0, severe: 0 }; }
     const result = FocusBeatMelodyGuide.analyze(lyrics, safeGuide);
-    summary.textContent = result.issues ? "灰体字部分建议缩减行字数，“☆”部分建议补充音节。" : "歌词已符合生成前节奏建议，可以生成试听。";
+    summary.textContent = result.issues ? "灰体字部分建议缩减行字数，“☆”部分建议补充音节。" : "歌词已符合当前曲调建议，可以生成试听。";
     summary.className = `lyric-fit-summary ${result.issues ? "warn" : "good"}`;
     $("#lyricWarning").hidden = true; renderInlineLyricOverlay(safeGuide);
     return result;
@@ -722,14 +723,13 @@
     const phase = pending ? "真唱任务正在云端创作" : currentDraft.preview && !currentDraft.stale ? `试听第 ${currentDraft.tuneVersion} 版已就绪` : ($("#lyrics").value.trim() ? "等待生成试听" : "等待歌词");
     $("#trackTitle").textContent = name; $("#trackStyle").textContent = `${styleNames[style]} · ${phase}`;
     $("#playSongBtn").textContent = pending ? "真唱正在生成…" : currentDraft.preview && !currentDraft.stale ? "▶ 播放全曲试听" : `生成全曲试听 · ${PREVIEW_COST} 音符`;
-    $("#previewRuleText").textContent = currentDraft.completed ? "原版母带已永久收藏" : (pending ? `任务已提交 · 正在等待 ${musicProviderName()} 真唱完成` : currentDraft.preview && !currentDraft.stale ? `全曲临时试听已生成 · 永久收藏 ${SONG_COST} 音符` : `全曲临时试听 ${PREVIEW_COST} 音符 · 永久收藏 ${SONG_COST} 音符`);
+    $("#previewRuleText").textContent = currentDraft.completed ? "完整歌曲已收藏到本设备" : (pending ? `任务已提交 · 正在等待 ${musicProviderName()} 真唱完成` : currentDraft.preview && !currentDraft.stale ? `全曲临时试听已生成 · 收藏到本设备 ${SONG_COST} 音符` : `全曲临时试听 ${PREVIEW_COST} 音符 · 收藏到本设备 ${SONG_COST} 音符`);
     $("#generateLyricsBtn").hidden = currentDraft.version > 0;
-    $("#regenerateLyricsBtn").hidden = currentDraft.version === 0;
     $("#polishLyricsBtn").hidden = !$("#lyrics").value.trim();
     $("#regenerateTuneBtn").hidden = !$("#lyrics").value.trim();
-    ["generateLyricsBtn", "regenerateLyricsBtn", "polishLyricsBtn", "regenerateTuneBtn", "playSongBtn"].forEach(id => { $("#" + id).disabled = pending; });
+    ["generateLyricsBtn", "polishLyricsBtn", "regenerateTuneBtn", "playSongBtn"].forEach(id => { $("#" + id).disabled = pending; });
     $("#saveSongBtn").disabled = currentDraft.completed || pending;
-    $("#saveSongBtn").textContent = currentDraft.completed ? "✓ 已收藏 · 原版母带永久保留" : `永久收藏原版母带 · ${SONG_COST} 音符`;
+    $("#saveSongBtn").textContent = currentDraft.completed ? "✓ 已收藏 · 已保存到本设备" : `收藏完整歌曲到本设备 · ${SONG_COST} 音符`;
     renderLyricFit();
   }
 
@@ -752,7 +752,7 @@
   }
 
   function setMusicButtonsDisabled(disabled) {
-    ["generateLyricsBtn", "regenerateLyricsBtn", "polishLyricsBtn", "regenerateTuneBtn", "playSongBtn", "saveSongBtn"].forEach(id => { const node = $("#" + id); if (node) node.disabled = disabled; });
+    ["generateLyricsBtn", "polishLyricsBtn", "regenerateTuneBtn", "playSongBtn", "saveSongBtn"].forEach(id => { const node = $("#" + id); if (node) node.disabled = disabled; });
   }
 
   async function chargedMusicAction(button, busyText, cost, action) {
@@ -800,6 +800,7 @@
     currentDraft.preview = null; currentDraft.stale = false; currentDraft.completed = false; currentDraft.savedFingerprint = ""; currentDraft.warningAcknowledgedJobId = "";
     lyricReview = { open: false, original: "", draft: "", selectedLine: -1, loopLine: false, undo: null };
     stopSongPlayback(); updateStudioMeta(); renderPreviewLyrics();
+    if (preview.localAudioId) void window.FocusBeatAudioStore?.remove(preview.localAudioId);
     if (jobId && accessToken) void FocusBeatMusicAPI.release(jobId, accessToken);
   }
 
@@ -813,6 +814,34 @@
     return { ...result.data, status, lyrics: snapshot.lyrics, previewLyrics: result.data.previewLyrics || snapshot.lyrics, seed: previewSeed, blueprint, melodyGuide: snapshot.melodyGuide, compositionPlan, alignment, mode: result.mode, stale: false, pending: !["ready", "succeeded"].includes(status) };
   }
 
+  function localPreviewId(preview) { return `draft:${String(preview?.jobId || uid("audio"))}`; }
+  async function cachePreviewLocally(preview) {
+    const store = window.FocusBeatAudioStore;
+    if (!store?.supported?.()) throw new Error("当前浏览器不支持本地歌曲存储，无法安全保存试听");
+    const id = preview.localAudioId || localPreviewId(preview); preview.localAudioId = id;
+    if (await store.has(id)) return preview;
+    $("#nowLyric").textContent = "真唱已完成，正在保存到本设备…";
+    await store.cache(id, preview.audioUrl, { scope:"draft", provider:preview.provider });
+    return preview;
+  }
+  async function localAudioSource(asset) {
+    const store = window.FocusBeatAudioStore;
+    if (asset?.localAudioId && store?.supported?.()) {
+      const source = await store.source(asset.localAudioId); if (source) return source;
+      throw new Error("本设备中没有这首歌曲的音频；请重新生成并收藏");
+    }
+    if (asset?.audioUrl && store?.supported?.()) {
+      const id = asset.unlocked && asset.id ? `song:${asset.id}` : localPreviewId(asset);
+      try {
+        await store.cache(id, asset.audioUrl, { scope:asset.unlocked ? "saved" : "draft", provider:asset.provider });
+        asset.localAudioId = id; if (asset.unlocked) saveState();
+        return store.source(id);
+      } catch (_) { /* Legacy links may already have expired; the existing URL fallback remains available. */ }
+    }
+    if (asset?.audioUrl) return asset.audioUrl;
+    throw new Error("真实歌曲音频不可用，请重新生成试听");
+  }
+
   function pause(milliseconds) { return new Promise(resolve => setTimeout(resolve, milliseconds)); }
 
   async function waitForPreview(preview, snapshot, seed) {
@@ -821,7 +850,7 @@
     while (Date.now() < deadline) {
       let result;
       try {
-        result = await FocusBeatMusicAPI.jobStatus(preview.jobId, preview.accessToken);
+        result = await FocusBeatMusicAPI.jobStatus(preview.jobId, preview.accessToken, { lyrics:snapshot.lyrics });
         consecutiveErrors = 0;
       } catch (error) {
         consecutiveErrors += 1;
@@ -850,6 +879,7 @@
   }
 
   async function installPreview(preview, previousPreview) {
+    await cachePreviewLocally(preview);
     currentDraft.preview = preview; currentDraft.seed = preview.seed; currentDraft.melodyGuide = preview.melodyGuide || currentDraft.melodyGuide; currentDraft.compositionPlan = preview.compositionPlan || currentDraft.compositionPlan || currentDraft.melodyGuide?.compositionPlan || null; currentDraft.fingerprint = preview.blueprint.fingerprint; currentDraft.warningAcknowledgedJobId = "";
     currentDraft.savedFingerprint = ""; currentDraft.stale = false; currentDraft.completed = false; currentDraft.tuneVersion += 1; state.pendingMusic = null; lyricReview = { open: false, original: "", draft: "", selectedLine: -1, loopLine: false, undo: null }; saveState();
     updateMusicMode({ mode: preview.mode, provider: preview.provider, renderMode: preview.renderMode }); updateStudioMeta();
@@ -857,6 +887,7 @@
       ? `全曲临时试听已就绪，并已取得 ${musicProviderName(preview.provider)} 真实歌词时间轴。`
       : `全曲临时试听已就绪；${musicProviderName(preview.provider)} 未返回字级时间轴，已启用估算逐行同步。`;
     renderPreviewLyrics();
+    if (previousPreview?.localAudioId && previousPreview.localAudioId !== preview.localAudioId) void window.FocusBeatAudioStore?.remove(previousPreview.localAudioId);
     if (previousPreview?.jobId && previousPreview.jobId !== preview.jobId) void FocusBeatMusicAPI.release(previousPreview.jobId, previousPreview.accessToken);
   }
 
@@ -884,11 +915,11 @@
     return { lyrics: nextLyrics, seed: outputSeed, melodyGuide: normalizedGuide, result };
   }
 
-  async function generateLyrics(isVariant = false) {
+  async function generateLyrics() {
     if (lyricsGenerationPending) return;
     const name = $("#songName").value.trim();
     if (!name) { showToast("请先填写歌曲名字", "error"); $("#songName").focus(); return; }
-    const button = isVariant ? $("#regenerateLyricsBtn") : $("#generateLyricsBtn");
+    const button = $("#generateLyricsBtn");
     const conditions = { title: name, style: $("#songStyle").value, topic: $("#songTopic").value.trim() };
     const create = async () => {
       const previous = $("#lyrics").value.trim(); const seed = Date.now() + currentDraft.version * 997;
@@ -899,14 +930,13 @@
       $("#lyrics").value = nextLyrics; currentDraft.seed = outputSeed; currentDraft.melodyGuide = melodyGuide; currentDraft.compositionPlan = melodyGuide.compositionPlan || currentDraft.compositionPlan; currentDraft.stale = false; updateStudioMeta();
       currentDraft.version += 1;
       $("#lyricsVersion").textContent = `第 ${currentDraft.version} 版 · 种子 ${String(outputSeed).slice(-6)}`;
-      updateAiMode(result.mode, result.reason); updateStudioMeta(); $("#nowLyric").textContent = isVariant ? "新歌词已生成，旧试听已清理；请点击生成试听。" : `歌词已生成，支付${PREVIEW_COST}音符即可生成试听。`;
-      showToast(result.mode === "remote" ? (isVariant ? "已换歌词，旧试听已清理，请确认歌词后生成试听" : "歌词已经生成") : "云端文本 AI 未成功，已展示本地草稿且未扣音符", result.mode === "remote" ? "success" : "error");
+      updateAiMode(result.mode, result.reason); updateStudioMeta(); $("#nowLyric").textContent = `歌词已生成，支付${PREVIEW_COST}音符即可生成试听。`;
+      showToast(result.mode === "remote" ? "歌词已经生成" : "云端文本 AI 未成功，已展示本地草稿且未扣音符", result.mode === "remote" ? "success" : "error");
       return { chargeable: result.mode === "remote" };
     };
     lyricsGenerationPending = true;
     try {
-      if (isVariant) await chargedMusicAction(button, "正在生成新歌词…", PREVIEW_COST, create);
-      else await runButton(button, "AI 创作中…", create);
+      await runButton(button, "AI 创作中…", create);
     } finally { lyricsGenerationPending = false; }
   }
 
@@ -943,7 +973,7 @@
   async function polishLyrics() {
     const snapshot = songSnapshot(); if (!snapshot.title || !snapshot.lyrics) { showToast("请先填写歌名并生成歌词", "error"); return; }
     const guide = guideFor(currentDraft.seed || Date.now()); const button = $("#polishLyricsBtn");
-    await chargedMusicAction(button, "正在按曲调润色…", PREVIEW_COST, async () => {
+    await chargedMusicAction(button, "正在润色歌词…", PREVIEW_COST, async () => {
       const seed = Date.now() + currentDraft.version * 577 + 19;
       const result = await FocusBeatAI.request("lyrics", { ...snapshot, seed, mode: "polish", melodyGuide: guide });
       const nextLyrics = String(result.data.lyrics || "").trim(); if (!nextLyrics) throw new Error("AI 没有返回润色后的歌词");
@@ -972,6 +1002,7 @@
   function stopSongPlayback() {
     FocusBeatMusic.stop();
     if (activeHtmlAudio) { activeHtmlAudio.pause(); activeHtmlAudio.src = ""; activeHtmlAudio = null; }
+    if (currentDraft.preview?.localAudioId) window.FocusBeatAudioStore?.release(currentDraft.preview.localAudioId);
     previewAudio = null; lyricReview.loopLine = false;
     const loopButton = $("#reviewLoopBtn"); if (loopButton) { loopButton.textContent = "↻ 循环当前行：关"; loopButton.setAttribute("aria-pressed", "false"); }
     resetPlayButton(); activePlayButton = null;
@@ -1088,7 +1119,7 @@
     const detailPlaying = playing && globalPlayerSong?.id === selectedSongId;
     $("#playDetailSongBtn").textContent = detailPlaying ? "Ⅱ 暂停播放" : globalPlayerSong?.id === selectedSongId ? "▶ 继续播放" : "▶ 播放完整版";
     $("#playDetailSongBtn").setAttribute("aria-pressed", String(detailPlaying));
-    const canSkip = collectionQueue.filter(item => item?.audioUrl && !collectionFailedIds.has(item.id)).length > 1;
+    const canSkip = collectionQueue.filter(item => (item?.localAudioId || item?.audioUrl) && !collectionFailedIds.has(item.id)).length > 1;
     $("#globalPlayerPrev").disabled = !canSkip; $("#globalPlayerNext").disabled = !canSkip;
     syncPlayerProgress();
   }
@@ -1101,7 +1132,7 @@
   }
 
   function prepareCollectionQueue(song) {
-    collectionQueue = state.songs.filter(item => item?.audioUrl); collectionFailedIds = new Set(); collectionQueueIndex = collectionQueue.findIndex(item => item.id === song?.id); if (collectionQueueIndex < 0) { collectionQueue.unshift(song); collectionQueueIndex = 0; }
+    collectionQueue = state.songs.filter(item => item?.localAudioId || item?.audioUrl); collectionFailedIds = new Set(); collectionQueueIndex = collectionQueue.findIndex(item => item.id === song?.id); if (collectionQueueIndex < 0) { collectionQueue.unshift(song); collectionQueueIndex = 0; }
   }
 
   async function playNextCollectionSong() {
@@ -1131,17 +1162,20 @@
   }
 
   async function startGlobalPlayer(song, { openDetail = true } = {}) {
-    if (!song?.audioUrl) { showToast("完整歌曲音频不可用，请重新生成并收藏", "error"); return; }
+    if (!song?.localAudioId && !song?.audioUrl) { showToast("完整歌曲音频不可用，请重新生成并收藏", "error"); return; }
     if (globalPlayerSong?.id === song.id && globalPlayerAudio) {
       if (!globalPlayerPlaying) { try { await globalPlayerAudio.play(); globalPlayerPlaying = true; } catch (error) { if (error?.name !== "AbortError") showToast("歌曲暂时无法播放，请稍后再试", "error"); } } else { globalPlayerAudio.pause(); globalPlayerPlaying = false; }
       syncGlobalPlayerButtons(); return true;
     }
-    const previousAudio = globalPlayerAudio; globalPlayerAudio = null;
+    const previousAudio = globalPlayerAudio; const previousSong = globalPlayerSong; globalPlayerAudio = null;
     if (previousAudio) { previousAudio.pause(); previousAudio.src = ""; }
+    if (previousSong?.localAudioId) window.FocusBeatAudioStore?.release(previousSong.localAudioId);
     if (!collectionQueue.length || !collectionQueue.some(item => item.id === song.id)) prepareCollectionQueue(song); else collectionQueueIndex = collectionQueue.findIndex(item => item.id === song.id);
     globalPlayerSong = song; globalPlayerTimeline = buildLyricTimeline(song); globalPlayerActiveLine = -1;
     $("#globalPlayerTitle").textContent = song.name; $("#globalSongPlayer").hidden = false;
-    const audio = new Audio(song.audioUrl); globalPlayerAudio = audio;
+    let source;
+    try { source = await localAudioSource(song); } catch (error) { showToast(error.message || "歌曲暂时无法播放", "error"); return false; }
+    const audio = new Audio(source); globalPlayerAudio = audio;
     selectedSongId = song.id;
     if (openDetail) openModal("songDetail"); else if ($("#songDetailModal").classList.contains("is-open")) renderSongDetail();
     audio.addEventListener("loadedmetadata", () => { if (globalPlayerAudio !== audio) return; if (Number.isFinite(audio.duration) && audio.duration > 1) { globalPlayerSong.duration = audio.duration; globalPlayerTimeline = buildLyricTimeline(globalPlayerSong); renderSongDetail(); } });
@@ -1158,7 +1192,8 @@
   }
 
   function closeGlobalPlayer() {
-    const audio = globalPlayerAudio; globalPlayerAudio = null; if (audio) { audio.pause(); audio.src = ""; }
+    const audio = globalPlayerAudio; const song = globalPlayerSong; globalPlayerAudio = null; if (audio) { audio.pause(); audio.src = ""; }
+    if (song?.localAudioId) window.FocusBeatAudioStore?.release(song.localAudioId);
     globalPlayerSong = null; globalPlayerTimeline = []; globalPlayerPlaying = false; globalPlayerActiveLine = -1; collectionQueue = []; collectionQueueIndex = -1; collectionFailedIds = new Set();
     $("#globalSongPlayer").hidden = true; $("#globalPlayerLyric").textContent = ""; syncGlobalPlayerButtons();
   }
@@ -1187,10 +1222,9 @@
     if (alreadyPlaying) { stopSongPlayback(); return; }
     stopSongPlayback(); activePlayButton = button; button.textContent = "■ 停止播放"; button.setAttribute("aria-pressed", "true"); $(".track-panel")?.classList.add("playing");
     try {
-      if (!asset?.audioUrl) throw new Error("真实歌曲音频不可用，请重新生成试听");
-      const audio = new Audio(asset.audioUrl); activeHtmlAudio = audio; previewAudio = audio;
+      const audio = new Audio(await localAudioSource(asset)); activeHtmlAudio = audio; previewAudio = audio;
       audio.addEventListener("loadedmetadata", () => { if (Number.isFinite(audio.duration) && audio.duration > 1) { asset.duration = audio.duration; renderPreviewLyrics(); } }); audio.addEventListener("timeupdate", () => updatePreviewLyric());
-      audio.addEventListener("ended", () => { resetPlayButton(button); activePlayButton = null; activeHtmlAudio = null; previewAudio = null; $(".track-panel")?.classList.remove("playing"); updatePreviewLyric(0); }, { once: true });
+      audio.addEventListener("ended", () => { resetPlayButton(button); activePlayButton = null; activeHtmlAudio = null; previewAudio = null; if (asset?.localAudioId) window.FocusBeatAudioStore?.release(asset.localAudioId); $(".track-panel")?.classList.remove("playing"); updatePreviewLyric(0); }, { once: true });
       audio.addEventListener("error", () => { stopSongPlayback(); showToast("音频地址已失效或试听权限已过期，请重新生成", "error"); }, { once: true });
       await audio.play();
     } catch (error) { stopSongPlayback(); showToast(error.message || "音频启动失败，请检查浏览器声音设置", "error"); }
@@ -1207,26 +1241,26 @@
   }
 
   async function saveSong() {
-    if (currentDraft.preview?.pending) { showToast("真唱任务尚未完成，暂时不能永久收藏", "error"); return; }
+    if (currentDraft.preview?.pending) { showToast("真唱任务尚未完成，暂时不能收藏", "error"); return; }
     if (!currentDraft.preview || currentDraft.stale) { showToast("请先生成当前歌词和曲调的试听", "error"); return; }
     const snapshot = songSnapshot(); if (!validateSongSnapshot(snapshot)) return;
-    await chargedMusicAction($("#saveSongBtn"), "正在永久收藏原版母带…", SONG_COST, async () => {
-      const result = await FocusBeatMusicAPI.request("complete", { ...snapshot, seed: currentDraft.preview.seed, previewJobId: currentDraft.preview.jobId, accessToken: currentDraft.preview.accessToken });
-      if (!result.data?.jobId) throw new Error("音乐服务没有返回完整歌曲");
+    await chargedMusicAction($("#saveSongBtn"), "正在收藏到本设备…", SONG_COST, async () => {
+      const localAudioId = currentDraft.preview.localAudioId; if (!localAudioId || !window.FocusBeatAudioStore?.supported?.()) throw new Error("试听尚未保存到本设备，请重新生成试听");
+      await window.FocusBeatAudioStore.promote(localAudioId);
       const blueprint = buildCurrentBlueprint(); if (!blueprint) throw new Error("歌曲蓝图无效");
-      const fullDuration = Number(result.data.duration || currentDraft.preview.duration || 60); const savedPlan = currentDraft.compositionPlan || currentDraft.melodyGuide?.compositionPlan || null; const alignment = currentDraft.preview.manualLyricsConfirmed ? currentDraft.preview.alignment || null : result.data.alignment || currentDraft.preview.alignment || null;
-      const song = { id: uid("song"), name: blueprint.title, style: blueprint.style, lyrics: snapshot.lyrics, seed: currentDraft.preview.seed, duration: fullDuration, blueprint, melodyGuide: currentDraft.melodyGuide, compositionPlan: savedPlan, alignment, previewJobId: currentDraft.preview.jobId, previewAccessToken: currentDraft.preview.accessToken, fullJobId: result.data.jobId, audioUrl: result.data.audioUrl || "", accessToken: result.data.accessToken || "", storageKey: result.data.storageKey || "", provider: result.data.provider || currentDraft.preview.provider || "acemusic", unlocked: true, createdAt: new Date().toISOString() };
+      const fullDuration = Number(currentDraft.preview.duration || 60); const savedPlan = currentDraft.compositionPlan || currentDraft.melodyGuide?.compositionPlan || null; const alignment = currentDraft.preview.manualLyricsConfirmed ? currentDraft.preview.alignment || null : currentDraft.preview.alignment || null;
+      const song = { id: uid("song"), name: blueprint.title, style: blueprint.style, lyrics: snapshot.lyrics, seed: currentDraft.preview.seed, duration: fullDuration, blueprint, melodyGuide: currentDraft.melodyGuide, compositionPlan: savedPlan, alignment, previewJobId: currentDraft.preview.jobId, previewAccessToken: currentDraft.preview.accessToken, fullJobId: currentDraft.preview.jobId, audioUrl: "", localAudioId, accessToken: "", storageKey: "", provider: currentDraft.preview.provider || "treblo", unlocked: true, createdAt: new Date().toISOString() };
       const previousSongs = state.songs; state.songs = [song, ...state.songs].slice(0, 100);
       if (!saveState()) { state.songs = previousSongs; throw new Error("浏览器未能保存歌曲"); }
       currentDraft.savedFingerprint = blueprint.fingerprint; currentDraft.completed = true; renderDashboard();
-      $("#previewRuleText").textContent = "原版母带已永久收藏";
-      showToast("试听对应的同一份原版母带已永久收藏");
+      $("#previewRuleText").textContent = "完整歌曲已收藏到本设备";
+      showToast("试听对应的同一首歌曲已收藏到本设备");
     });
   }
 
   function renderSongs() {
     const list = $("#songList");
-    if (!state.songs.length) { list.innerHTML = `<div class="empty">收藏还是空的。先用 ${PREVIEW_COST} 音符临时试听全曲，满意后再用 ${SONG_COST} 音符永久收藏同一份原版母带。</div>`; return; }
+    if (!state.songs.length) { list.innerHTML = `<div class="empty">收藏还是空的。先用 ${PREVIEW_COST} 音符临时试听全曲，满意后再用 ${SONG_COST} 音符收藏到本设备。</div>`; return; }
     list.innerHTML = state.songs.map(song => `<article class="song-card"><button class="song-card-open" data-open-song="${escapeHtml(song.id)}" type="button" aria-label="查看《${escapeHtml(song.name)}》完整歌曲"><small>${escapeHtml(styleNames[song.style] || song.style)} · 完整版</small><h3>${escapeHtml(song.name)}</h3><p>${escapeHtml(formatDate(song.createdAt))} · ${escapeHtml(song.provider === "demo" ? "演示音频" : song.provider)} · 蓝图 ${escapeHtml(song.blueprint?.fingerprint || "已迁移")}</p><p class="song-preview">${escapeHtml(song.lyrics)}</p></button><div class="song-actions"><button class="button secondary" data-play-song="${escapeHtml(song.id)}" type="button" aria-pressed="false">▶ 播放完整版</button><button class="button ghost" data-open-song="${escapeHtml(song.id)}" type="button">查看歌词</button><button class="button danger" data-delete-song="${escapeHtml(song.id)}" type="button">删除</button></div></article>`).join("");
   }
 
@@ -1246,8 +1280,7 @@
   function deleteSong(id) {
     if (!confirm("确定删除这首歌曲吗？已经消耗的音符不会返还。")) return;
     const song = state.songs.find(item => item.id === id); stopSongPlayback(); if (globalPlayerSong?.id === id) closeGlobalPlayer(); state.songs = state.songs.filter(item => item.id !== id); saveState(); renderSongs();
-    if (song?.fullJobId && song?.accessToken) FocusBeatMusicAPI.release(song.fullJobId, song.accessToken);
-    if (song?.previewJobId && song?.previewAccessToken) FocusBeatMusicAPI.release(song.previewJobId, song.previewAccessToken);
+    if (song?.localAudioId) void window.FocusBeatAudioStore?.remove(song.localAudioId);
     showToast("歌曲已从收藏中删除");
   }
 
@@ -1306,7 +1339,7 @@
     });
     $("#saveMistakeBtn").addEventListener("click", saveMistake); $("#mistakeList").addEventListener("click", event => { const button = event.target.closest("[data-delete-mistake]"); if (button) deleteMistake(button.dataset.deleteMistake); });
     $("#newQuizBtn").addEventListener("click", generateQuiz); $("#quizSubject").addEventListener("change", () => { quizPrefetch = null; generateQuiz(); }); $("#submitQuizBtn").addEventListener("click", submitQuiz); $("#quizAnswer").addEventListener("keydown", event => { if (event.key === "Enter") submitQuiz(); });
-    $("#generateLyricsBtn").addEventListener("click", () => generateLyrics(false)); $("#regenerateLyricsBtn").addEventListener("click", () => generateLyrics(true)); $("#polishLyricsBtn").addEventListener("click", polishLyrics);
+    $("#generateLyricsBtn").addEventListener("click", generateLyrics); $("#polishLyricsBtn").addEventListener("click", polishLyrics);
     $("#regenerateTuneBtn").addEventListener("click", changeTune);
     $("#continuePreviewBtn").addEventListener("click", () => { currentDraft.warningAcknowledgedJobId = currentDraft.preview?.jobId || ""; previewWarningPending = false; closeModal($("#previewWarningModal"), false); playSongAsset(currentDraft.preview, currentDraft.preview.blueprint, $("#playSongBtn"), false); });
     $("#cancelPreviewBtn").addEventListener("click", () => { previewWarningPending = false; closeModal($("#previewWarningModal"), false); $("#lyrics").focus(); });
@@ -1343,10 +1376,11 @@
   function init() {
     window.FocusBeatThemes?.setup();
     const lyricTools = $(".lyric-editor-tools"); if (lyricTools && $(".studio-controls")) $(".studio-controls").append(lyricTools);
-    const melodyTitle = $(".melody-fit-head strong"); if (melodyTitle) melodyTitle.textContent = "生成前填词节奏建议";
+    const melodyTitle = $(".melody-fit-head strong"); if (melodyTitle) melodyTitle.textContent = "曲调和建议";
     $("#lyrics").placeholder = "先生成节奏规划，再按建议音节位生成歌词……";
-    $("#regenerateTuneBtn").textContent = "换个曲调与填词 · 1 音符";
+    $("#regenerateTuneBtn").textContent = "换个歌词和曲调 · 1 音符";
     setupLyricOverlay(); setupPreviewLyricsPanel(); setupLyricAudit(); setupPlayerModeControl(); initWaveform(); bindEvents(); renderDashboard(); renderMistakes(); renderWeekly(); updateStudioMeta(); renderPreviewLyrics(); updateAiMode("local"); updateMusicMode({ mode: "unconfigured", provider: "treblo" }); saveState();
+    void window.FocusBeatAudioStore?.cleanup();
     FocusBeatAI.status().then(meta => updateAiMode(meta.mode, meta.reason));
     resumePendingMusic();
     FocusBeatMusicAPI.status().then(updateMusicMode);

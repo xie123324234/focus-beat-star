@@ -20,6 +20,8 @@ TREBLO_BASE_URL="https://api.treblo.com/v1"
 TREBLO_MODEL_VERSION="v3"
 # 目标区间的下限；系统会自动转换为合法的 [60,90] 等 30 秒区间。
 TREBLO_TARGET_DURATION="120"
+# 可选：用于给本次浏览器下载签名；不填会安全地派生自 Treblo Key。
+MUSIC_SIGNING_SECRET="可选的至少32位随机字符串"
 MUSIC_HOURLY_LIMIT="8"
 MUSIC_DAILY_LIMIT="15"
 
@@ -30,7 +32,7 @@ MINIMAX_MUSIC_MODEL="music-2.6-free"
 MINIMAX_REQUEST_TIMEOUT_MS="300000"
 MINIMAX_TARGET_DURATION="60"
 
-# ACE Music 真唱：必须同时创建并绑定名为 focus-beat-audio 的 R2 存储桶
+# ACE Music 真唱备用模式：若使用它或 MiniMax，仍需另行配置云端音频存储。
 # 这是备用供应商；若要切回，请把 MUSIC_PROVIDER 改成 acemusic 并填写 Key。
 ACEMUSIC_API_KEY="替换成你的 ACE Music API Key"
 ACEMUSIC_BASE_URL="https://api.acemusic.ai"

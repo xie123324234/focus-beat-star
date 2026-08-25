@@ -162,7 +162,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--purple); box-sha
 .lyrics-editor-shell { position:relative; min-height:290px; overflow:hidden; border-radius:13px; }
 .lyrics-editor-shell textarea { position:relative; z-index:2; height:290px; margin-top:0; background:transparent; color:transparent; -webkit-text-fill-color:transparent; caret-color:var(--ink); }
 .lyric-overlay { position:absolute; inset:0; z-index:1; overflow:auto; padding:12px 13px; pointer-events:none; white-space:pre-wrap; word-break:break-word; color:var(--ink); font-family:"Songti SC",Georgia,serif; font-size:14px; line-height:1.75; }
-.lyric-overlay-line { min-height:1.75em; }.lyric-overlay-header { color:var(--purple); }.lyric-overlay-fit,.lyric-overlay-punctuation { color:#3e3851; }.lyric-overlay-extra { color:#aaa6b2; }.lyric-overlay-missing { color:#c7bfff; text-shadow:0 0 5px rgba(112,84,232,.24); }.lyric-overlay-empty { color:transparent; }
+.lyric-overlay-line { min-height:1.75em; }.lyric-overlay-header { color:var(--purple); }.lyric-overlay-fit,.lyric-overlay-punctuation { color:var(--lyric-editor-text,#3e3851); }.lyric-overlay-extra { color:var(--lyric-extra-text,#aaa6b2); }.lyric-overlay-missing { color:#c7bfff; text-shadow:0 0 5px rgba(112,84,232,.24); }.lyric-overlay-empty { color:transparent; }
 .lyric-warning { padding:10px 12px; border:1px solid #f0c9c1; border-radius:12px; background:#fff3ef; color:#a94d43; font-size:11px; line-height:1.6; }
 .force-lyrics-button { justify-self:start; color:#a94d43; }
 .lyric-meter-preview { max-height:180px; overflow:auto; padding:11px 12px; border:1px solid var(--line); border-radius:13px; background:#fff; }
