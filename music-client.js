@@ -1,20 +1,34 @@
 (() => {
   "use strict";
+  const API_PATH = "/api/music";
+  const REQUEST_TIMEOUT = 370_000;
 
-  // 本地拟唱版不依赖音乐后端。保留与真唱版一致的任务接口，避免业务层分叉。
-  function hashString(value) {
-    let hash = 2166136261;
-    for (const char of String(value)) { hash ^= char.codePointAt(0); hash = Math.imul(hash, 16777619); }
-    return hash >>> 0;
+  async function request(action, payload = {}, options = {}) {
+    if (location.protocol !== "http:" && location.protocol !== "https:") throw new Error("真唱版必须通过 Wrangler 或部署站点运行，不能直接双击 index.html");
+    const timeoutMs = Number(options.timeoutMs) || REQUEST_TIMEOUT;
+    const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const headers = { "content-type": "application/json" };
+      if (["preview", "complete"].includes(action)) headers["x-idempotency-key"] = options.idempotencyKey || crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`;
+      const response = await fetch(API_PATH, { method: "POST", headers, credentials: "same-origin", body: JSON.stringify({ action, payload }), signal: controller.signal });
+      const raw = await response.text(); let result = null; try { result = raw ? JSON.parse(raw) : null; } catch (_) {}
+      if (response.ok && result?.ok && result.data) return { data: result.data, mode: result.meta?.mode || result.data.mode || "remote", meta: result.meta || {} };
+      const detail = result?.error || (raw ? raw.slice(0, 220) : "没有收到后端响应"); throw new Error(`音乐服务请求失败（${response.status}）：${detail}`);
+    } catch (error) {
+      if (error?.name === "AbortError") throw new Error("音乐生成等待超时，音符不会被扣除，请稍后重试");
+      throw error;
+    } finally { clearTimeout(timeout); }
   }
-  function localJob(action, payload = {}) {
-    const seed = Number(payload.seed) || Date.now(); const signature = hashString(`${action}|${payload.title}|${payload.style}|${payload.lyrics}|${seed}`);
-    if (action === "delete") return { deleted: true, jobId: String(payload.jobId || "") };
-    if (action === "complete") return { jobId: `local_full_${signature.toString(36)}`, previewJobId: String(payload.previewJobId || ""), status: "ready", mode: "local", provider: "web-speech", duration: 168, seed, supportsExtend: false };
-    return { jobId: `local_preview_${signature.toString(36)}`, status: "ready", mode: "local", provider: "web-speech", duration: 42, seed, supportsExtend: false };
+
+  async function status() {
+    if (location.protocol !== "http:" && location.protocol !== "https:") return { mode: "unconfigured", provider: "treblo", supportsExtend: false, reason: "file" };
+    const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 5_000);
+    try { const response = await fetch(API_PATH, { headers: { accept: "application/json" }, credentials: "same-origin", signal: controller.signal, cache: "no-store" }); if (!response.ok) return { mode: "unconfigured", provider: "treblo", supportsExtend: false }; return (await response.json())?.meta || { mode: "unconfigured", provider: "treblo", supportsExtend: false }; }
+    catch (_) { return { mode: "unconfigured", provider: "treblo", supportsExtend: false }; }
+    finally { clearTimeout(timeout); }
   }
-  async function request(action, payload = {}) { return { data: localJob(action, payload), mode: "local" }; }
-  async function status() { return { mode: "local", provider: "web-speech", supportsExtend: false }; }
-  async function release() {}
-  window.FocusBeatMusicAPI = { request, status, release, localJob };
+
+  async function jobStatus(jobId, accessToken, details = {}) { return request("status", { jobId, accessToken, lyrics:details.lyrics || "" }, { timeoutMs: 25_000 }); }
+  async function release(jobId, accessToken) { if (!jobId || !accessToken) return; try { await request("delete", { jobId, accessToken }, { timeoutMs: 5_000 }); } catch (_) {} }
+  window.FocusBeatMusicAPI = { request, status, jobStatus, release };
 })();

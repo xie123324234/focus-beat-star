@@ -1,5 +1,56 @@
 # 复制为 .dev.vars 后填写真实值；不要把真实 Key 写进此模板
-AGNES_API_KEY="替换成你的 Agnes API Key"
-AGNES_BASE_URL="https://apihub.agnes-ai.com/v1"
-AGNES_MODEL="agnes-2.5-flash"
-AI_PROVIDER="agnes"
+# 任意 OpenAI 兼容文本 AI；下面以 SiliconFlow 为例
+AI_PROVIDER="siliconflow"
+AI_API_KEY="替换成你的文本 AI Key"
+AI_BASE_URL="https://api.siliconflow.cn/v1"
+AI_MODEL="deepseek-ai/DeepSeek-V4-Flash"
+# 可选：简单任务使用更快的小模型，歌词使用质量更高的模型；不填则都使用 AI_MODEL。
+AI_FAST_MODEL="deepseek-ai/DeepSeek-V4-Flash"
+AI_LYRICS_MODEL="deepseek-ai/DeepSeek-V4-Flash"
+AI_FAST_TIMEOUT_MS="15000"
+AI_LYRICS_TIMEOUT_MS="32000"
+AI_HOURLY_LIMIT="60"
+AI_DAILY_LIMIT="500"
+
+# Treblo Melodia v3 真唱（当前默认供应商）
+# 注册后有 1500 credits；每次生成 1 首约消耗 100 credits。Key 只放服务端。
+MUSIC_PROVIDER="treblo"
+TREBLO_API_KEY="替换成你的 Treblo API Key"
+TREBLO_BASE_URL="https://api.treblo.com/v1"
+TREBLO_MODEL_VERSION="v3"
+# 目标区间的下限；系统会自动转换为合法的 [60,90] 等 30 秒区间。
+TREBLO_TARGET_DURATION="120"
+# 可选：用于给本次浏览器下载签名；不填会安全地派生自 Treblo Key。
+MUSIC_SIGNING_SECRET="可选的至少32位随机字符串"
+MUSIC_HOURLY_LIMIT="8"
+MUSIC_DAILY_LIMIT="15"
+
+# MiniMax 备用供应商（music-2.6-free 已停止服务）
+MINIMAX_API_KEY="替换成你的 MiniMax API Key"
+MINIMAX_BASE_URL="https://api.minimaxi.com"
+MINIMAX_MUSIC_MODEL="music-2.6-free"
+MINIMAX_REQUEST_TIMEOUT_MS="300000"
+MINIMAX_TARGET_DURATION="60"
+
+# ACE Music 真唱备用模式：若使用它或 MiniMax，仍需另行配置云端音频存储。
+# 这是备用供应商；若要切回，请把 MUSIC_PROVIDER 改成 acemusic 并填写 Key。
+ACEMUSIC_API_KEY="替换成你的 ACE Music API Key"
+ACEMUSIC_BASE_URL="https://api.acemusic.ai"
+ACEMUSIC_MODEL="acemusic/acestep-v15-turbo"
+ACEMUSIC_DURATION="60"
+ACEMUSIC_PREVIEW_DURATION="30"
+# 官方免费云端只提供 OpenAI 兼容的同步接口 /v1/chat/completions。
+# 若将来部署自己的 ACE-Step API Server，再改为 native_async（/release_task + /query_result）。
+ACEMUSIC_API_MODE="cloud_completion"
+# Turbo 模型标准为 8 步。云端网关约 60 秒会超时，默认 5 步以提高 60 秒歌曲成功率；可按音质/速度在 4～8 间调整。
+ACEMUSIC_INFERENCE_STEPS="5"
+# ACE 云端同步网关容易在长请求上 504，不要把该值提高到 60 秒以上。
+ACEMUSIC_MAX_SYNC_DURATION="60"
+ACEMUSIC_REQUEST_TIMEOUT_MS="75000"
+# 防止同一来源绕过前端反复消耗音乐 API 配额。
+ACEMUSIC_HOURLY_LIMIT="8"
+# 若 ACE 返回歌词匹配评分，低于该值的歌曲会自动拒绝并退款。
+ACEMUSIC_MIN_LYRIC_SCORE="0.72"
+# 默认使用 text2music，优先保证输出带中文主唱的真实歌曲。
+# cover-guide 只有在请求中提供真实的人声引导音频时才会启用；纯音符 WAV 不再作为人声源。
+ACEMUSIC_RENDER_MODE="text2music"

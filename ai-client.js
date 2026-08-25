@@ -2,8 +2,8 @@
   "use strict";
 
   const API_PATH = "/api/ai";
-  // Agnes 的完整歌词响应实测可能超过 12 秒；前端超时必须长于服务端的 20 秒上限。
-  const REQUEST_TIMEOUT = 25000;
+  // 后端歌词请求最多等待 35 秒；前端必须留出网络回传缓冲，不能在后端完成前主动断开。
+  const REQUEST_TIMEOUT = 45000;
 
   function hashString(value) {
     let hash = 2166136261;
@@ -39,6 +39,40 @@
     classic: ["星光落在安静展开的纸上", "旋律带着思考轻轻地流淌", "每一个答案都有耐心的回响", "我在时间深处收藏成长"],
   };
 
+  function localMeterGuide(payload) {
+    const guide = payload?.melodyGuide && typeof payload.melodyGuide === "object" ? payload.melodyGuide : {};
+    if (window.FocusBeatComposition) {
+      const plan = guide.compositionPlan || window.FocusBeatComposition.create({ style: payload.style, seed: payload.seed });
+      return window.FocusBeatComposition.toGuide(window.FocusBeatComposition.normalize(plan, { style: payload.style, seed: payload.seed }));
+    }
+    return guide;
+  }
+  function localSection(line) { const value = String(line); if (value.includes("副歌")) return value.includes("终章") ? "outro" : "chorus"; if (value.includes("桥")) return "bridge"; if (value.includes("终章") || value.includes("尾")) return "outro"; return "verse"; }
+  const localPhraseBank = [
+    "清晨光落在书页", "窗边风翻开新页", "笔尖轻轻写下答案", "深呼吸整理思绪",
+    "把难题拆成小步", "答案藏在每一步", "错误留下新的线索", "慢一点也能向前",
+    "我们一起把梦点亮", "每次认真都会发光", "勇气在心里长大", "今天也要继续出发",
+    "一步一步走向远方", "小小坚持也有力量", "把未知写成新答案",
+    "让心跳跟着节拍发亮", "把小小勇气唱得响亮", "所有认真都会留下回响",
+    "跟着节拍耐心再试一遍", "重新读题就看见隐藏方向", "我会带着自己的节奏长大",
+  ];
+  function phraseLength(value) { return Array.from(String(value).replace(/[\s，。！？、；：,.!?~～—-]/g, "")).length; }
+  function localLine(target, random, topic, title) {
+    const candidates = [...localPhraseBank];
+    if (target === phraseLength(title)) candidates.unshift(title);
+    if (topic && target === phraseLength(topic)) candidates.unshift(topic);
+    const exact = candidates.filter(value => phraseLength(value) === target);
+    return exact.length ? pick(random, exact) : (candidates.sort((a, b) => Math.abs(phraseLength(a) - target) - Math.abs(phraseLength(b) - target))[0] || "继续向前");
+  }
+  function localMeterize(lyrics, payload) {
+    const guide = localMeterGuide(payload); const plan = guide.compositionPlan || guide; let section = "verse"; const positions = { verse: 0, chorus: 0, bridge: 0, outro: 0 }; const random = mulberry32(hashString(`${payload.seed}|fit`));
+    return String(lyrics || "").split(/\r?\n/).map(line => {
+      const text = line.trim(); if (!text) return ""; if (/^\s*[\[【].+[\]】]\s*$/.test(text)) { section = localSection(text); positions[section] = 0; return text; }
+      const phrase = window.FocusBeatComposition?.phraseForLine(plan, section, positions[section]); positions[section] += 1; const target = phrase?.syllableCount || guide.slots?.[section]?.[Math.min(positions[section] - 1, (guide.slots?.[section]?.length || 1) - 1)] || 8;
+      return localLine(target, random, clean(payload.topic, 100), clean(payload.title, 32));
+    }).join("\n");
+  }
+
   function localLyrics(payload) {
     const title = clean(payload.title, 32) || "今天我会发光";
     const style = Object.hasOwn(styleWords, payload.style) ? payload.style : "pop";
@@ -54,14 +88,15 @@
       [`${title}，听见心里的回答`, "一步一步把未知变成办法", "就算今天只点亮一颗星", "明天也会连成闪亮的银河"],
     ];
     const hook = pick(random, hooks);
-    const lines = [
+    const lines = payload.mode === "polish" && clean(payload.lyrics, 2400) ? clean(payload.lyrics, 2400).split(/\r?\n/) : [
       "[主歌 A]", pick(random, beginnings), `今天我要挑战：${topic}`, pick(random, challenges), pick(random, turns), "",
       "[副歌]", ...hook, "",
       "[主歌 B]", pick(random, beginnings), pick(random, challenges), pick(random, turns), pick(random, styleWords[style]), "",
       "[桥段]", "把走过的弯路写进旋律", "原来坚持本身就是答案", "",
       "[终章副歌]", ...hook.slice(0, 2), pick(random, styleWords[style]), `${title}，我正在慢慢发光`,
     ];
-    return { lyrics: lines.join("\n"), seed, title, style, versionLabel: `创作版本 ${String(seed).slice(-4)}` };
+    const melodyGuide = localMeterGuide(payload);
+    return { lyrics: localMeterize(lines.join("\n"), { ...payload, melodyGuide }), seed, title, style, melodyGuide, compositionPlan: melodyGuide.compositionPlan, versionLabel: `创作版本 ${String(seed).slice(-4)}` };
   }
 
   function localPlan(payload) {
@@ -139,13 +174,24 @@
     return { keyword, copy };
   }
 
-  const localHandlers = { lyrics: localLyrics, plan: localPlan, mistake: localMistake, quiz: localQuiz, weekly: localWeekly, summary: localSummary };
+  function localAmbient(payload) {
+    const focus = Math.max(0, Number(payload.focus) || 0); const sessions = Math.max(0, Number(payload.sessions) || 0); const streak = Math.max(0, Number(payload.streak) || 0);
+    const messages = sessions > 0
+      ? [`你已经完成 ${sessions} 段专注，先为认真开始的自己点个赞。`, `今天的 ${focus} 分钟不是小数字，它们正在一点点变成你的底气。`, `连续前进 ${Math.max(1, streak)} 天，慢慢来也是一种很厉害的速度。`]
+      : ["先完成一个小到不会害怕的目标，今天的节奏就会开始。", "不用等状态完美，翻开第一页就是很好的开始。", "把最难的任务切成第一小步，现在只做这一小步。"];
+    const index = hashString(`${payload.day || "today"}|${focus}|${sessions}`) % messages.length;
+    return { message: messages[index], mood: sessions ? "proud" : "gentle" };
+  }
+
+  const localHandlers = { lyrics: localLyrics, plan: localPlan, mistake: localMistake, quiz: localQuiz, weekly: localWeekly, summary: localSummary, ambient: localAmbient };
 
   async function request(task, payload = {}) {
     if (!Object.hasOwn(localHandlers, task)) throw new Error("未知 AI 任务");
+    let fallbackReason = "";
     if (location.protocol === "http:" || location.protocol === "https:") {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
+      const requestTimeout = task === "ambient" ? 12000 : REQUEST_TIMEOUT;
+      const timeout = setTimeout(() => controller.abort(), requestTimeout);
       try {
         const response = await fetch(API_PATH, {
           method: "POST",
@@ -155,15 +201,24 @@
         });
         if (response.ok) {
           const result = await response.json();
-          if (result?.ok && result.data) return { data: result.data, mode: result.meta?.mode || "remote" };
+          if (result?.ok && result.data) return { data: result.data, mode: result.meta?.mode || "remote", reason: result.meta?.reason };
+          fallbackReason = result?.error || `文本 AI 返回了无效结果（HTTP ${response.status}）`;
+        } else {
+          fallbackReason = `文本 AI 服务返回 HTTP ${response.status}`;
         }
-      } catch (_) {
-        // 网络或后端不可用时，产品仍可完整运行。
+      } catch (error) {
+        fallbackReason = error?.name === "AbortError" ? `文本 AI 请求超时（前端等待超过 ${requestTimeout / 1000} 秒）` : "文本 AI 后端不可达";
       } finally {
         clearTimeout(timeout);
       }
+    } else {
+      fallbackReason = "直接打开本地文件，未经过 Wrangler";
     }
-    return { data: localHandlers[task](payload), mode: "local" };
+    return {
+      data: localHandlers[task](payload),
+      mode: location.protocol === "file:" ? "local" : "local-fallback",
+      reason: fallbackReason,
+    };
   }
 
   async function status() {
