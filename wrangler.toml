@@ -13,6 +13,10 @@ MINIMAX_REQUEST_TIMEOUT_MS = "300000"
 MINIMAX_TARGET_DURATION = "60"
 MUSIC_HOURLY_LIMIT = "8"
 MUSIC_DAILY_LIMIT = "15"
+# Text AI 的公开连接信息。实际模型名和 API Key 请在 Cloudflare 的
+# Variables and Secrets 中单独配置，避免把密钥或错误的模型名提交到仓库。
+AI_PROVIDER = "siliconflow"
+AI_BASE_URL = "https://api.siliconflow.cn/v1"
 AI_FAST_TIMEOUT_MS = "15000"
 AI_LYRICS_TIMEOUT_MS = "32000"
 AI_HOURLY_LIMIT = "60"
